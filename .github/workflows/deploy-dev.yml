@@ -35,7 +35,7 @@ jobs:
       - name: SAM Deploy (DEV)
         run: |
           sam deploy \
-            --stack-name serverless-cognito-dev \
+            --stack-name riddhi-serverless-stack \
             --capabilities CAPABILITY_IAM \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset \
