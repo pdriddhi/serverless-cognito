@@ -1,4 +1,7 @@
-name: Deploy Serverless Cognito (DEV)
+
+=======
+name: Deploy Serverless Cognito Dev
+>>>>>>> fa94959 (Add CI/CD pipeline for dev environment)
 
 on:
   push:
@@ -6,6 +9,7 @@ on:
       - main
 
 jobs:
+<<<<<<< HEAD
   deploy:
     runs-on: ubuntu-latest
 
@@ -17,11 +21,32 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+=======
+  deploy-dev:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.SERVERLESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.SERVERLESS_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+>>>>>>> fa94959 (Add CI/CD pipeline for dev environment)
 
       - name: Install AWS SAM CLI
         run: |
           pip install aws-sam-cli
 
+<<<<<<< HEAD
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -29,6 +54,8 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+=======
+>>>>>>> fa94959 (Add CI/CD pipeline for dev environment)
       - name: SAM Build
         run: sam build
 
@@ -36,6 +63,13 @@ jobs:
         run: |
           sam deploy \
             --stack-name serverless-cognito-dev \
+<<<<<<< HEAD
             --capabilities CAPABILITY_NAMED_IAM \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset
+=======
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides Environment=dev
+>>>>>>> fa94959 (Add CI/CD pipeline for dev environment)
