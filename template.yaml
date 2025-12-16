@@ -1,0 +1,386 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Complete Serverless backend - DynamoDB tables + Lambda functions + API Gateway - UPDATED
+
+Globals:
+  Function:
+    Runtime: python3.9
+    Timeout: 30
+    MemorySize: 128
+    CodeUri: ./lambda_functions/
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Deployment environment
+
+Resources:
+
+  # DYNAMODB TABLES WITH TABLE NAMES
+  ApartmentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "ApartmentsTable-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: apartment_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: apartment_id
+          KeyType: HASH
+
+  BuildingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "Buildings-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: building_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: building_id
+          KeyType: HASH
+
+  LoginUsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "LoginUsers-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: mobile
+          AttributeType: S
+      KeySchema:
+        - AttributeName: mobile
+          KeyType: HASH
+
+  SuperAdminsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "SuperAdmins-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: admin_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: admin_id
+          KeyType: HASH
+
+  UserUnitsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "UserUnits-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: unit_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: unit_id
+          KeyType: HASH
+
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "Users-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+
+  MaintenanceTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "MaintenanceRecords-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: maintenance_id
+          AttributeType: S
+        - AttributeName: building_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: maintenance_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: BuildingIndex
+          KeySchema:
+            - AttributeName: building_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  PaymentTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "PaymentRecords-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: payment_id
+          AttributeType: S
+        - AttributeName: maintenance_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: payment_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: MaintenanceIndex
+          KeySchema:
+            - AttributeName: maintenance_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  # API GATEWAY
+  ServerlessApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "ServerlessAPI-${Environment}"
+      StageName: !Ref Environment
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: "'*'"
+
+  # LAMBDA FUNCTIONS
+  LoginFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "login-${Environment}"
+      Handler: login.lambda_handler
+      Environment:
+        Variables:
+          TABLE_USERS: !Ref UsersTable
+          TABLE_LOGIN: !Ref LoginUsersTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LoginUsersTable
+      Events:
+        LoginAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /login
+            Method: POST
+
+  RegisterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "register-${Environment}"
+      Handler: register.lambda_handler
+      Environment:
+        Variables:
+          TABLE_USERS: !Ref UsersTable
+          TABLE_LOGIN: !Ref LoginUsersTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LoginUsersTable
+      Events:
+        RegisterAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /register
+            Method: POST
+
+  AddBuildingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "add-building-${Environment}"
+      Handler: add_building.lambda_handler
+      Environment:
+        Variables:
+          TABLE_BUILDINGS: !Ref BuildingsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BuildingsTable
+      Events:
+        AddBuildingAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /add_building
+            Method: POST
+
+  GetBuildingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "get-building-${Environment}"
+      Handler: get_building.lambda_handler
+      Environment:
+        Variables:
+          TABLE_BUILDINGS: !Ref BuildingsTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BuildingsTable
+      Events:
+        GetBuildingAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /get_building
+            Method: GET
+
+  UpdateBuildingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "update-building-${Environment}"
+      Handler: update_building.lambda_handler
+      Environment:
+        Variables:
+          TABLE_BUILDINGS: !Ref BuildingsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BuildingsTable
+      Events:
+        UpdateBuildingAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /update_building
+            Method: POST
+
+  DeleteBuildingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "delete-building-${Environment}"
+      Handler: delete_building.lambda_handler
+      Environment:
+        Variables:
+          TABLE_BUILDINGS: !Ref BuildingsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BuildingsTable
+      Events:
+        DeleteBuildingAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /delete_building
+            Method: POST
+
+  AssignUnitFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "assign-unit-${Environment}"
+      Handler: assign_unit.lambda_handler
+      Environment:
+        Variables:
+          TABLE_USERUNITS: !Ref UserUnitsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserUnitsTable
+      Events:
+        AssignUnitAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /assign_unit
+            Method: POST
+
+  GetMyUnitsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "get-my-units-${Environment}"
+      Handler: get_my_units.lambda_handler
+      Environment:
+        Variables:
+          TABLE_USERUNITS: !Ref UserUnitsTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserUnitsTable
+      Events:
+        GetMyUnitsAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /get_my_units
+            Method: GET
+
+  MaintenanceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "maintenance-management-${Environment}"
+      Handler: maintenance_management.lambda_handler  # ✅ FIXED: uppercase H
+      Environment:
+        Variables:
+          TABLE_MAINTENANCE: !Ref MaintenanceTable
+          TABLE_PAYMENT: !Ref PaymentTable
+          TABLE_BUILDINGS: !Ref BuildingsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MaintenanceTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PaymentTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BuildingsTable
+      Events:
+        MaintenanceGET:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /maintenance
+            Method: GET
+        MaintenancePOST:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /maintenance
+            Method: POST
+
+  PaymentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "payment-processing-${Environment}"
+      Handler: payment_processing.lambda_handler
+      Environment:
+        Variables:
+          TABLE_MAINTENANCE: !Ref MaintenanceTable
+          TABLE_PAYMENT: !Ref PaymentTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MaintenanceTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PaymentTable
+      Events:
+        PaymentCashPOST:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /payment/cash
+            Method: POST
+        PaymentOnlinePOST:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /payment/online
+            Method: POST
+
+Outputs:
+  ApiUrl:
+    Description: "API Gateway Invoke URL"
+    Value: !Sub "https://${ServerlessApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/"  # ✅ FIXED
+  LoginLambda:
+    Description: "Login Lambda Function"
+    Value: !Ref LoginFunction
+  AddBuildingLambda:
+    Description: "Add Building Lambda Function"
+    Value: !Ref AddBuildingFunction
+  BuildingsTableName:
+    Description: "Buildings DynamoDB Table Name"
+    Value: !Ref BuildingsTable
+  MaintenanceTableName:
+    Description: "Maintenance Table Name"
+    Value: !Ref MaintenanceTable
+  PaymentTableName:
+    Description: "Payment Table Name"
+    Value: !Ref PaymentTable

@@ -1,0 +1,199 @@
+openapi: 3.0.0
+info:
+  title: Management Service API
+  version: 1.0.0
+  description: Complete API documentation for Registration, Login, Building, Units, Maintenance & Payment.
+
+servers:
+  - url: https://maint.featsinnovations.in
+
+paths:
+
+  /register:
+    post:
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                mobile: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: Registration successful
+
+  /login:
+    post:
+      summary: User Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mobile: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: Login successful
+
+  /add_building:
+    post:
+      summary: Add new building
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                wings: 
+                  type: array
+                  items: { type: string }
+                total_floors: { type: integer }
+                total_units: { type: integer }
+      responses:
+        "200":
+          description: Building created
+
+  /get_building:
+    get:
+      summary: Get building details
+      parameters:
+        - name: building_id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Building details
+
+  /update_building:
+    post:
+      summary: Update building info
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                building_id: { type: string }
+                building_name: { type: string }
+                wings:
+                  type: array
+                  items: { type: string }
+                total_floors: { type: string }
+                total_units: { type: string }
+                status: { type: string }
+      responses:
+        "200":
+          description: Updated building
+
+  /assign_unit:
+    post:
+      summary: Assign unit to a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id: { type: string }
+                building_id: { type: string }
+                unit_number: { type: string }
+                floor: { type: integer }
+                wings: { type: string }
+      responses:
+        "200":
+          description: Unit assigned
+
+  /get_my_units:
+    get:
+      summary: Get units assigned to a user
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Units of the user
+
+  /user_units_get:
+    get:
+      summary: Get all users with units
+      responses:
+        "200":
+          description: List of all assigned units
+
+  /maintenance:
+    post:
+      summary: Create maintenance bill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                building_id: { type: string }
+                due_date: { type: string }
+                bill_items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      item: { type: string }
+                      amount: { type: number }
+                      unit: { type: number }
+      responses:
+        "200":
+          description: Maintenance record created
+
+  /payment/process:
+    post:
+      summary: Process payment (cash + online)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                payment_method: { type: string }
+                maintenance_id: { type: string }
+                amount: { type: number }
+                received_by: { type: string }
+                payer_name: { type: string }
+                card_number: { type: string }
+                card_holder: { type: string }
+                expiry_date: { type: string }
+                cvv: { type: string }
+                payer_email: { type: string }
+                payer_contact: { type: string }
+      responses:
+        "200":
+          description: Payment processed
+
+  /payment/verify:
+    post:
+      summary: Verify payment using transaction_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                transaction_id: { type: string }
+      responses:
+        "200":
+          description: Payment status

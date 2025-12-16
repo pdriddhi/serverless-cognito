@@ -1,0 +1,81 @@
+[
+    {
+        "path": "/payment",
+        "httpMethod": null
+    },
+    {
+        "path": "/get_my_units",
+        "httpMethod": {
+            "GET": {},
+            "OPTIONS": {}
+        }
+    },
+    {
+        "path": "/login",
+        "httpMethod": {
+            "OPTIONS": {},
+            "POST": {}
+        }
+    },
+    {
+        "path": "/assign_unit",
+        "httpMethod": {
+            "OPTIONS": {},
+            "POST": {}
+        }
+    },
+    {
+        "path": "/register",
+        "httpMethod": {
+            "OPTIONS": {},
+            "POST": {}
+        }
+    },
+    {
+        "path": "/payment/cash or online ",
+        "httpMethod": {
+            "OPTIONS": {},
+            "POST": {}
+        }
+    }, 
+    {
+        "path": "/delete_building",
+        "httpMethod": {
+            "OPTIONS": {},
+            "POST": {}
+        }
+    },
+    {
+        "path": "/",
+        "httpMethod": null
+    },
+    {
+        "path": "/add_building",
+        "httpMethod": {
+            "OPTIONS": {},
+            "POST": {}
+        }
+    },
+    {
+        "path": "/update_building",
+        "httpMethod": {
+            "OPTIONS": {},
+            "POST": {}
+        }
+    },
+    {
+        "path": "/get_building",
+        "httpMethod": {
+            "GET": {},
+            "OPTIONS": {}
+        }
+    },
+    {
+        "path": "/maintenance",
+        "httpMethod": {
+            "GET": {},
+            "OPTIONS": {},
+            "POST": {}
+        }
+    }
+]

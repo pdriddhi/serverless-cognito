@@ -1,0 +1,17 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "cognito-idp:AdminCreateUser",
+                "cognito-idp:AdminGetUser",
+                "cognito-idp:AdminSetUserPassword",
+                "cognito-idp:AdminInitiateAuth",
+                "cognito-idp:ListUsers"
+                "cognito-idp:AdminConfirmSignUp"
+            ],
+            "Resource": "arn:aws:cognito-idp:ap-south-1:581983649846:userpool/ap-south-1_njYFt7IuH"
+        }
+    ]
+}
