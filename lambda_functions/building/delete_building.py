@@ -1,21 +1,19 @@
 import json
 import boto3
 import os
-from decimal import Decimal
 import traceback
 
-TABLE_BUILDINGS = os.environ['TABLE_BUILDINGS']
-
 def lambda_handler(event, context):
-    print("=== GET BUILDING FUNCTION STARTED ===")
-
+    print("=== DELETE BUILDING FUNCTION STARTED ===")
+    print(f"Full event: {json.dumps(event, indent=2)}")
+    
     try:
-        # Read query parameters
         query_params = event.get('queryStringParameters') or {}
         print(f"Query params: {query_params}")
-
+        
         building_id = query_params.get('building_id')
-
+        print(f"Building ID: {building_id}")
+        
         if not building_id:
             return {
                 'statusCode': 400,
@@ -23,17 +21,25 @@ def lambda_handler(event, context):
                     'Content-Type': 'application/json',
                     'Access-Control-Allow-Origin': '*'
                 },
-                'body': json.dumps({'message': 'building_id is required'})
+                'body': json.dumps({
+                    'message': 'building_id is required',
+                    'example': 'DELETE /delete_building?building_id=BLD123'
+                })
             }
-
-        # DynamoDB init
+        
+        table_name = os.environ.get('TABLE_BUILDINGS', 'Buildings-dev')
+        print(f"Using table: {table_name}")
+        
         dynamodb = boto3.resource('dynamodb', region_name='ap-south-1')
-        table = dynamodb.Table(TABLE_BUILDINGS)
-
-        # Fetch building
+        table = dynamodb.Table(table_name)
+        
+        print(f"Checking if building exists: {building_id}")
+        
         response = table.get_item(Key={'building_id': building_id})
-
+        print(f"Get item response: {json.dumps(response, default=str)}")
+        
         if 'Item' not in response:
+            print(f"Building {building_id} not found")
             return {
                 'statusCode': 404,
                 'headers': {
@@ -42,24 +48,11 @@ def lambda_handler(event, context):
                 },
                 'body': json.dumps({'message': 'Building not found'})
             }
-
-        item = response['Item']
-
-        # Convert Decimal → int / float
-        def convert_decimals(obj):
-            if isinstance(obj, Decimal):
-                return int(obj) if obj % 1 == 0 else float(obj)
-            elif isinstance(obj, dict):
-                return {k: convert_decimals(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [convert_decimals(i) for i in obj]
-            else:
-                return obj
-
-        building_data = convert_decimals(item)
-
-        print(f"Building fetched successfully: {building_data.get('building_name')}")
-
+        
+        print(f"Deleting building: {building_id}")
+        table.delete_item(Key={'building_id': building_id})
+        print(f"Building {building_id} deleted successfully")
+        
         return {
             'statusCode': 200,
             'headers': {
@@ -67,20 +60,25 @@ def lambda_handler(event, context):
                 'Access-Control-Allow-Origin': '*'
             },
             'body': json.dumps({
-                'message': 'Building details retrieved successfully',
-                'building': building_data
+                'message': 'Building deleted successfully',
+                'building_id': building_id,
+                'building_name': response['Item'].get('building_name', '')
             })
         }
-
+        
     except Exception as e:
-        print("ERROR:", str(e))
+        print(f"ERROR in lambda_handler: {str(e)}")
         traceback.print_exc()
-
+        
         return {
             'statusCode': 500,
             'headers': {
                 'Content-Type': 'application/json',
                 'Access-Control-Allow-Origin': '*'
             },
-            'body': json.dumps({'message': 'Failed to get building details'})
+            'body': json.dumps({
+                'message': 'Internal server error',
+                'error': str(e),
+                'details': 'Check Lambda logs for more information'
+            })
         }

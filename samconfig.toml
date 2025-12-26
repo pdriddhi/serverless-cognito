@@ -4,10 +4,11 @@ version = 0.1
 stack_name = "riddhi-serverless-stack"
 resolve_s3 = true
 s3_prefix = "riddhi-serverless-stack"
+region = "ap-south-1"
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
 disable_rollback = true
-parameter_overrides = "Environment=\"dev\""
+parameter_overrides = "Environment=\"dev\" UserPoolId=\"ap-south-1_njYFt7IuH\" CognitoClientId=\"7lq01e0ltn75p29mtejaj96je8\""
 image_repositories = []
 
 [default.global.parameters]
