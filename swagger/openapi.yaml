@@ -18,13 +18,55 @@ paths:
           application/json:
             schema:
               type: object
+              required:
+                - name
+                - mobile
+                - password
               properties:
-                name: { type: string }
-                mobile: { type: string }
-                password: { type: string }
+                name:
+                  type: string
+                  example: "Riddhi Sheladiya"
+                mobile:
+                  type: string
+                  example: "9876543210"
+                  minLength: 10
+                  maxLength: 10
+                password:
+                  type: string
+                  minLength: 6
+                  example: "Pass@123"
+                user_type:
+                  type: string
+                  example: "resident"
       responses:
         "200":
           description: Registration successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  user:
+                    type: object
+                    properties:
+                      user_id:
+                        type: string
+                      name:
+                        type: string
+                      mobile:
+                        type: string
+                      user_type:
+                        type: string
+                      status:
+                        type: string
+        "400":
+          description: Validation error or mobile already registered
+        "500":
+          description: Server error or Cognito failure
 
   /login:
     post:
@@ -35,12 +77,60 @@ paths:
           application/json:
             schema:
               type: object
+              required:
+                - mobile
+                - password
               properties:
-                mobile: { type: string }
-                password: { type: string }
+                mobile:
+                  type: string
+                  example: "9876543210"
+                  minLength: 10
+                  maxLength: 10
+                password:
+                  type: string
+                  example: "Password@123"
       responses:
         "200":
           description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  user:
+                    type: object
+                    properties:
+                      user_id:
+                        type: string
+                      name:
+                        type: string
+                      mobile:
+                        type: string
+                      user_type:
+                        type: string
+                  tokens:
+                    type: object
+                    properties:
+                      id_token:
+                        type: string
+                      access_token:
+                        type: string
+                      refresh_token:
+                        type: string
+                      expires_in:
+                        type: integer
+        "400":
+          description: Validation error (missing or invalid input)
+        "401":
+          description: Invalid mobile number or password
+        "404":
+          description: User not found
+        "500":
+          description: Server error
 
   /add_building:
     post:
@@ -51,16 +141,44 @@ paths:
           application/json:
             schema:
               type: object
+              required:
+                - name
+                - user_id
+                - wings
+                - wing_details
               properties:
-                name: { type: string }
-                wings: 
+                name:
+                  type: string
+                  example: "Green Heights"
+                user_id:
+                  type: string
+                  example: "USR-1234567890"
+                wings:
                   type: array
-                  items: { type: string }
-                total_floors: { type: integer }
-                total_units: { type: integer }
+                  items:
+                    type: string
+                  example: ["A", "B"]
+                wing_details:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    required:
+                      - total_floors
+                      - units_per_floor
+                    properties:
+                      total_floors:
+                        type: integer
+                        example: 5
+                      units_per_floor:
+                        type: integer
+                        example: 4
       responses:
         "200":
-          description: Building created
+          description: Building created successfully
+        "400":
+          description: Bad request (validation error)
+        "500":
+          description: Internal server error
 
   /get_building:
     get:
@@ -69,14 +187,80 @@ paths:
         - name: building_id
           in: query
           required: true
-          schema: { type: string }
+          schema:
+            type: string
+          example: "BLD-AB12CD34"
       responses:
         "200":
-          description: Building details
+          description: Building details retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Building details retrieved successfully"
+                  building:
+                    type: object
+                    properties:
+                      building_id:
+                        type: string
+                        example: "BLD-AB12CD34"
+                      building_name:
+                        type: string
+                        example: "Green Heights"
+                      user_id:
+                        type: string
+                        example: "USR-1234567890"
+                      status:
+                        type: string
+                        example: "active"
+                      created_at:
+                        type: string
+                        example: "2024-12-01T10:30:00"
+                      updated_at:
+                        type: string
+                        example: "2024-12-01T10:30:00"
+                      total_units_of_building:
+                        type: integer
+                        example: 26
+                      wings:
+                        type: array
+                        items:
+                          type: string
+                        example: ["A", "B"]
+                      wing_details:
+                        type: object
+                        additionalProperties:
+                          type: object
+                          properties:
+                            total_floors:
+                              type: integer
+                              example: 5
+                            units_per_floor:
+                              type: integer
+                              example: 4
+                            total_units:
+                              type: integer
+                              example: 20
+        "400":
+          description: Missing or invalid building_id
+        "404":
+          description: Building not found
+        "500":
+          description: Internal server error
 
   /update_building:
-    post:
+    patch:
       summary: Update building info
+      parameters:
+        - name: building_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "BLD-AB12CD34"
       requestBody:
         required: true
         content:
@@ -84,17 +268,74 @@ paths:
             schema:
               type: object
               properties:
-                building_id: { type: string }
-                building_name: { type: string }
+                building_name:
+                  type: string
+                  example: "Green Heights Phase 2"
                 wings:
                   type: array
-                  items: { type: string }
-                total_floors: { type: string }
-                total_units: { type: string }
-                status: { type: string }
+                  items:
+                    type: string
+                  example: ["A", "B", "C"]
+                wing_details:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      total_floors:
+                        type: integer
+                        example: 5
+                      units_per_floor:
+                        type: integer
+                        example: 4
+                      total_units:
+                        type: integer
+                        example: 20
+                status:
+                  type: string
+                  example: "active"
       responses:
         "200":
-          description: Updated building
+          description: Building updated successfully
+        "400":
+          description: Invalid request or no fields to update
+        "404":
+          description: Building not found
+        "500":
+          description: Internal server error
+
+  /delete_building:
+    delete:
+      summary: Delete a building
+      parameters:
+        - name: building_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "BLD-AB12CD34"
+      responses:
+        "200":
+          description: Building deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Building deleted successfully
+                  building_id:
+                    type: string
+                    example: BLD-AB12CD34
+                  building_name:
+                    type: string
+                    example: Green Heights
+        "400":
+          description: building_id missing
+        "404":
+          description: Building not found
+        "500":
+          description: Internal server error
 
   /assign_unit:
     post:
@@ -105,15 +346,49 @@ paths:
           application/json:
             schema:
               type: object
+              required:
+                - user_id
+                - building_id
+                - unit_number
+                - floor
+                - wings
               properties:
-                user_id: { type: string }
-                building_id: { type: string }
-                unit_number: { type: string }
-                floor: { type: integer }
-                wings: { type: string }
+                user_id:
+                  type: string
+                  example: "USR-1234567890"
+                building_id:
+                  type: string
+                  example: "BLD-AB12CD34"
+                unit_number:
+                  type: string
+                  example: "A-203"
+                floor:
+                  type: integer
+                  example: 2
+                wings:
+                  type: string
+                  example: "A"
+                unit_type:
+                  type: string
+                  example: "2BHK"
+                  default: "2BHK"
+                area_sqft:
+                  type: integer
+                  example: 850
+                  default: 0
+                rent_amount:
+                  type: number
+                  example: 15000
+                  default: 0
       responses:
-        "200":
-          description: Unit assigned
+        "201":
+          description: Unit assigned successfully
+        "400":
+          description: Missing or invalid input data
+        "404":
+          description: User or Building not found
+        "500":
+          description: Internal server error
 
   /get_my_units:
     get:
@@ -122,17 +397,25 @@ paths:
         - name: user_id
           in: query
           required: true
-          schema: { type: string }
+          schema:
+            type: string
+          example: "USR-1234567890"
       responses:
         "200":
-          description: Units of the user
+          description: Units fetched successfully
+        "400":
+          description: Missing user_id parameter
+        "500":
+          description: Internal server error
 
   /user_units_get:
     get:
-      summary: Get all users with units
+      summary: Get all users with assigned units
       responses:
         "200":
           description: List of all assigned units
+        "500":
+          description: Internal server error
 
   /maintenance:
     post:
@@ -143,57 +426,186 @@ paths:
           application/json:
             schema:
               type: object
+              required:
+                - building_id
+                - due_date
+                - user_id
+                - wings
               properties:
-                building_id: { type: string }
-                due_date: { type: string }
+                building_id:
+                  type: string
+                user_id:
+                  type: string
+                due_date:
+                  type: string
+                wings:
+                  type: array
+                  items:
+                    type: string
+                description:
+                  type: string
                 bill_items:
                   type: array
                   items:
                     type: object
-                    properties:
-                      item: { type: string }
-                      amount: { type: number }
-                      unit: { type: number }
+      responses:
+        "201":
+          description: Maintenance record created successfully
+        "400":
+          description: Missing or invalid request data
+        "500":
+          description: Internal server error
+
+  /maintenance/by-building:
+    get:
+      summary: Get maintenance bills for a building
+      parameters:
+        - name: building_id
+          in: query
+          required: true
+          schema:
+            type: string
       responses:
         "200":
-          description: Maintenance record created
+          description: Maintenance records fetched successfully
+        "400":
+          description: Missing building_id
+        "500":
+          description: Internal server error
+
+  /maintenance/details:
+    get:
+      summary: Get maintenance bill details
+      parameters:
+        - name: maintenance_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Maintenance bill details retrieved successfully
+        "400":
+          description: Missing maintenance_id
+        "404":
+          description: Maintenance record not found
+        "500":
+          description: Internal server error
+
+  /maintenance/delete:
+    delete:
+      summary: Delete maintenance bill
+      parameters:
+        - name: maintenance_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Maintenance bill deleted successfully
+        "400":
+          description: Cannot delete due to existing payments
+        "404":
+          description: Maintenance record not found
+        "500":
+          description: Internal server error
 
   /payment/process:
     post:
-      summary: Process payment (cash + online)
+      summary: Process payment (cash or online)
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required:
+                - payment_method
+                - maintenance_id
+                - amount
               properties:
-                payment_method: { type: string }
-                maintenance_id: { type: string }
-                amount: { type: number }
-                received_by: { type: string }
-                payer_name: { type: string }
-                card_number: { type: string }
-                card_holder: { type: string }
-                expiry_date: { type: string }
-                cvv: { type: string }
-                payer_email: { type: string }
-                payer_contact: { type: string }
+                payment_method:
+                  type: string
+                maintenance_id:
+                  type: string
+                amount:
+                  type: number
+      responses:
+        "201":
+          description: Payment successful
+        "400":
+          description: Validation error
+        "404":
+          description: Maintenance not found
+        "500":
+          description: Server error
+
+  /payment/by-maintenance:
+    get:
+      summary: Get all payments for a maintenance bill
+      parameters:
+        - name: maintenance_id
+          in: query
+          required: true
+          schema:
+            type: string
       responses:
         "200":
-          description: Payment processed
+          description: Payment list returned
+        "400":
+          description: maintenance_id missing
+        "500":
+          description: Server error
+
+  /payment/details:
+    get:
+      summary: Get payment details by payment ID
+      parameters:
+        - name: payment_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Payment details
+        "404":
+          description: Payment not found
 
   /payment/verify:
     post:
-      summary: Verify payment using transaction_id
+      summary: Verify payment using transaction ID
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required:
+                - transaction_id
               properties:
-                transaction_id: { type: string }
+                transaction_id:
+                  type: string
       responses:
         "200":
-          description: Payment status
+          description: Payment verified
+        "404":
+          description: Transaction not found
+        "500":
+          description: Server error
+
+  /payment/receipt:
+    get:
+      summary: Generate payment receipt
+      parameters:
+        - name: payment_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Receipt generated
+        "404":
+          description: Payment not found

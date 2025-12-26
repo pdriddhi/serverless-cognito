@@ -10,19 +10,42 @@ dynamodb = boto3.resource("dynamodb")
 def lambda_handler(event, context):
     try:
         print("=" * 60)
+        print("UPDATE BUILDING (PATCH METHOD)")
         print("=" * 60)
         
-        body = json.loads(event["body"]) if isinstance(event.get("body"), str) else event.get("body", {})
+        http_method = event.get("httpMethod", "PATCH")
+        print(f"HTTP Method: {http_method}")
         
+        building_id = None
+        body = {}
+        
+        if http_method == "PATCH":
+            query_params = event.get("queryStringParameters", {}) or {}
+            building_id = query_params.get("building_id")
+            
+            if event.get("body"):
+                body = json.loads(event["body"]) if isinstance(event.get("body"), str) else event.get("body", {})
+                if not building_id:
+                    building_id = body.get("building_id")
+        
+        elif http_method == "POST":
+            body = json.loads(event["body"]) if isinstance(event.get("body"), str) else event.get("body", {})
+            building_id = body.get("building_id")
+        
+        print(f"Building ID: {building_id}")
         print(f"Request body: {json.dumps(body, indent=2)}")
         
-        building_id = body.get("building_id")
         if not building_id:
-            return error_response(400, "building_id is required")
+            error_msg = {
+                "message": "building_id is required",
+                "for_patch": "Use query parameter: ?building_id=value",
+                "or_body": "Or include in request body: {'building_id': 'value', ...}"
+            } if http_method == "PATCH" else {"message": "building_id is required"}
+            return error_response(400, error_msg)
 
         TABLE_NAME = os.environ.get("TABLE_BUILDINGS", "Buildings-dev")
         table = dynamodb.Table(TABLE_NAME)
-        
+
         print(f"Using table: {TABLE_NAME}")
 
         if "name" in body:
@@ -55,37 +78,37 @@ def lambda_handler(event, context):
             total_units = 0
             wing_details = body["wing_details"]
             print(f" Calculating total units from wing_details: {wing_details}")
-            
+
             for wing_name, wing_data in wing_details.items():
                 print(f"  Processing wing: {wing_name}, data: {wing_data}")
-                
+
                 if "total_units" in wing_data:
                     wing_units = wing_data["total_units"]
                     print(f"    Using direct total_units: {wing_units}")
-                
+
                 elif "total_floors" in wing_data and "units_per_floor" in wing_data:
                     total_floors = wing_data["total_floors"]
                     units_per_floor = wing_data["units_per_floor"]
                     wing_units = total_floors * units_per_floor
                     print(f"    Calculated: {total_floors} floors × {units_per_floor} units = {wing_units}")
-                
+
                 else:
                     wing_units = 0
                     print(f" o unit data found for wing {wing_name}")
-                
+
                 total_units += int(wing_units)
                 print(f"    Running total: {total_units}")
-            
+
             print(f"Total building units calculated: {total_units}")
-            
+
             expr_names["#total_units_of_building"] = "total_units_of_building"
             expr_values[":total_units_of_building"] = Decimal(total_units)
             update_expr.append("#total_units_of_building = :total_units_of_building")
             print(f" Added total_units_of_building: {total_units}")
 
         if len(update_expr) == 1:
-            return error_response(400, "No fields to update")
-        
+            return error_response(400, {"message": "No fields to update"})
+
         print(f" Update Expression: SET {', '.join(update_expr)}")
         print(f" Expression Attribute Names: {expr_names}")
         print(f" Expression Attribute Values: {json.dumps(expr_values, default=str)}")
@@ -100,7 +123,7 @@ def lambda_handler(event, context):
         )
 
         print(f" Update successful")
-        
+
         return {
             "statusCode": 200,
             "headers": {
@@ -115,12 +138,12 @@ def lambda_handler(event, context):
 
     except dynamodb.meta.client.exceptions.ConditionalCheckFailedException:
         print(f" Building not found: {building_id}")
-        return error_response(404, "Building not found")
+        return error_response(404, {"message": "Building not found"})
 
     except Exception as e:
         print(f" Error: {str(e)}")
         traceback.print_exc()
-        return error_response(500, str(e))
+        return error_response(500, {"message": str(e)})
 
 
 def to_dynamo(value):
@@ -139,13 +162,13 @@ def decimal_default(obj):
         return int(obj) if obj % 1 == 0 else float(obj)
     raise TypeError
 
-def error_response(code, msg):
-    print(f"🚨 Error response: {code} - {msg}")
+def error_response(code, msg_dict):
+    print(f" Error response: {code} - {json.dumps(msg_dict)}")
     return {
         "statusCode": code,
         "headers": {
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*"
         },
-        "body": json.dumps({"message": msg})
+        "body": json.dumps(msg_dict)
     }

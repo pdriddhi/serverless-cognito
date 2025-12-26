@@ -79,7 +79,7 @@ def process_payment(event):
         }
 
 def process_cash_payment(body):
-    required_fields = ['maintenance_id', 'amount', 'received_by']
+    required_fields = ['maintenance_id', 'amount', 'received_by', 'user_id']
     for field in required_fields:
         if field not in body:
             return {
@@ -120,6 +120,7 @@ def process_cash_payment(body):
         'payment_id': payment_id,
         'maintenance_id': body['maintenance_id'],
         'building_id': maintenance_record['building_id'],
+        'user_id': body['user_id'],
         'amount': amount_decimal,
         'payment_method': 'cash',
         'payment_status': 'completed',
@@ -173,7 +174,7 @@ def process_cash_payment(body):
     }
 
 def process_online_payment(body):
-    required_fields = ['maintenance_id', 'amount', 'card_number', 'card_holder', 'expiry_date', 'cvv']
+    required_fields = ['maintenance_id', 'amount', 'card_number', 'card_holder', 'expiry_date', 'cvv', 'user_id']
     for field in required_fields:
         if field not in body:
             return {
@@ -245,6 +246,7 @@ def process_online_payment(body):
         'payment_id': payment_id,
         'maintenance_id': body['maintenance_id'],
         'building_id': maintenance_record['building_id'],
+        'user_id': body['user_id'],
         'amount': amount_decimal,
         'payment_method': 'online',
         'payment_status': 'completed',
@@ -267,7 +269,7 @@ def process_online_payment(body):
         
         maintenance_table.update_item(
             Key={'maintenance_id': body['maintenance_id']},
-            UpdateExpression='SET #status = :status, updated_at = :updated_at',
+            UpdateExpression= SET,
             ExpressionAttributeNames={'#status': 'status'},
             ExpressionAttributeValues={
                 ':status': 'paid',
@@ -471,6 +473,7 @@ def generate_receipt(event):
         'amount': amount,
         'payment_method': payment_record['payment_method'],
         'payer_name': payment_record.get('payer_name', 'N/A'),
+        'user_id': payment_record.get('user_id'),
         'building_id': payment_record['building_id'],
         'maintenance_id': payment_record['maintenance_id'],
         'bill_name': maintenance_record['bill_name'],
@@ -550,6 +553,7 @@ def verify_payment(event):
             'transaction_id': transaction_id,
             'payment_status': payment_record['payment_status'],
             'payment_id': payment_record['payment_id'],
+            'user_id': payment_record.get('user_id'),
             'amount': amount,
             'payment_date': payment_record['payment_date'],
             'verified': True

@@ -129,7 +129,7 @@ def lambda_handler(event, context):
             "created_at": now
         }
 
-        table.put_item(Item=item)
+        table.put_item(Item=item)   
 
         return response(201, {
             "success": True,
