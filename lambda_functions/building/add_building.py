@@ -7,6 +7,31 @@ from datetime import datetime
 from decimal import Decimal
 
 TABLE_BUILDINGS = os.environ['TABLE_BUILDINGS']
+USERS_TABLE = os.environ.get('USERS_TABLE')
+
+dynamodb = boto3.resource('dynamodb')
+buildings_table = dynamodb.Table(TABLE_BUILDINGS)
+users_table = dynamodb.Table(USERS_TABLE) if USERS_TABLE else None
+
+def validate_user(user_id):
+    """
+    Check if user exists in Users table
+    Returns True if user exists, False otherwise
+    """
+    if not USERS_TABLE or not users_table:
+        print("Warning: USERS_TABLE not configured, skipping user validation")
+        return True  # Allow if table not configured (for backward compatibility)
+    
+    try:
+        response = users_table.get_item(Key={'user_id': user_id})
+        user_exists = 'Item' in response
+        if not user_exists:
+            print(f"User {user_id} not found in Users table")
+        return user_exists
+    except Exception as e:
+        print(f"Error validating user {user_id}: {str(e)}")
+        traceback.print_exc()
+        return False
 
 def lambda_handler(event, context):
     try:
@@ -78,6 +103,21 @@ def lambda_handler(event, context):
                 'body': json.dumps({
                     'message': 'Invalid user_id format',
                     'success': False
+                })
+            }
+
+        # Validate that user exists in DynamoDB Users table
+        if not validate_user(user_id):
+            return {
+                'statusCode': 404,
+                'headers': {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                },
+                'body': json.dumps({
+                    'message': 'User not found. Please register first before creating a building.',
+                    'success': False,
+                    'error': 'User does not exist in the system'
                 })
             }
 
@@ -218,11 +258,8 @@ def lambda_handler(event, context):
         }
 
         
-        dynamodb = boto3.resource('dynamodb')
-        table = dynamodb.Table(TABLE_BUILDINGS)
-        
         try:
-            table.put_item(Item=building_item)
+            buildings_table.put_item(Item=building_item)
             print(f"Building created: {building_id} by user: {user_id}")
             
         except Exception as e:

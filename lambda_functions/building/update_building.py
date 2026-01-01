@@ -7,6 +7,32 @@ import traceback
 
 dynamodb = boto3.resource("dynamodb")
 
+TABLE_BUILDINGS = os.environ.get("TABLE_BUILDINGS", "Buildings-dev")
+USERS_TABLE = os.environ.get("USERS_TABLE")
+
+buildings_table = dynamodb.Table(TABLE_BUILDINGS)
+users_table = dynamodb.Table(USERS_TABLE) if USERS_TABLE else None
+
+def validate_user(user_id):
+    """
+    Check if user exists in Users table
+    Returns True if user exists, False otherwise
+    """
+    if not USERS_TABLE or not users_table:
+        print("Warning: USERS_TABLE not configured, skipping user validation")
+        return True  # Allow if table not configured (for backward compatibility)
+    
+    try:
+        response = users_table.get_item(Key={'user_id': user_id})
+        user_exists = 'Item' in response
+        if not user_exists:
+            print(f"User {user_id} not found in Users table")
+        return user_exists
+    except Exception as e:
+        print(f"Error validating user {user_id}: {str(e)}")
+        traceback.print_exc()
+        return False
+
 def lambda_handler(event, context):
     try:
         print("=" * 60)
@@ -43,10 +69,31 @@ def lambda_handler(event, context):
             } if http_method == "PATCH" else {"message": "building_id is required"}
             return error_response(400, error_msg)
 
-        TABLE_NAME = os.environ.get("TABLE_BUILDINGS", "Buildings-dev")
-        table = dynamodb.Table(TABLE_NAME)
+        # Extract user_id from request body or query parameters
+        user_id = body.get("user_id")
+        if not user_id:
+            query_params = event.get("queryStringParameters", {}) or {}
+            user_id = query_params.get("user_id")
+        
+        # Validate user_id if provided
+        if user_id:
+            # Validate user_id format
+            if not isinstance(user_id, str) or len(user_id) < 10:
+                return error_response(400, {
+                    "message": "Invalid user_id format",
+                    "success": False
+                })
+            
+            # Validate that user exists in DynamoDB Users table
+            if not validate_user(user_id):
+                return error_response(404, {
+                    "message": "User not found. Please register first before updating a building.",
+                    "success": False,
+                    "error": "User does not exist in the system"
+                })
+            print(f"User validated: {user_id}")
 
-        print(f"Using table: {TABLE_NAME}")
+        print(f"Using table: {TABLE_BUILDINGS}")
 
         if "name" in body:
             body["building_name"] = body.pop("name")
@@ -113,7 +160,7 @@ def lambda_handler(event, context):
         print(f" Expression Attribute Names: {expr_names}")
         print(f" Expression Attribute Values: {json.dumps(expr_values, default=str)}")
 
-        response = table.update_item(
+        response = buildings_table.update_item(
             Key={"building_id": building_id},
             UpdateExpression="SET " + ", ".join(update_expr),
             ExpressionAttributeNames=expr_names,

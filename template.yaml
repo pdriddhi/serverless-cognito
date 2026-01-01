@@ -218,6 +218,31 @@ Resources:
           Projection:
             ProjectionType: ALL
 
+  MembersTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "MembersTable-${Environment}"
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: building_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      GlobalSecondaryIndexes:
+        - IndexName: building-index
+          KeySchema:
+            - AttributeName: building_id
+              KeyType: HASH
+            - AttributeName: user_id
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL          
+
   ServerlessApi:
     Type: AWS::Serverless::Api
     Properties:
@@ -356,9 +381,12 @@ Resources:
       Environment:
         Variables:
           TABLE_BUILDINGS: !Ref BuildingsTable
+          USERS_TABLE: !Ref UsersTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
       Events:
         UpdateBuildingAPI:
           Type: Api
@@ -393,9 +421,15 @@ Resources:
       Environment:
         Variables:
           TABLE_USERUNITS: !Ref UserUnitsTable
+          USERS_TABLE: !Ref UsersTable  
+          TABLE_BUILDINGS: !Ref BuildingsTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UserUnitsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable     
+        - DynamoDBReadPolicy:
+            TableName: !Ref BuildingsTable    
       Events:
         AssignUnitAPI:
           Type: Api
@@ -623,6 +657,104 @@ Resources:
           Path: /delete_maintenance
           Method: DELETE
 
+  CreateMemberFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "create-member-${Environment}"
+      Handler: members.create_member.lambda_handler
+      Environment:
+        Variables:
+          MEMBERS_TABLE: !Ref MembersTable
+          USERS_TABLE: !Ref UsersTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MembersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        CreateMemberAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /members
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  GetMemberFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "get-member-${Environment}"
+      Handler: members.get_member.lambda_handler
+      Environment:
+        Variables:
+          MEMBERS_TABLE: !Ref MembersTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref MembersTable
+      Events:
+        GetAllMembersAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /members
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        GetMemberByIdAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /members/{user_id}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  UpdateMemberFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "update-member-${Environment}"
+      Handler: members.update_member.lambda_handler
+      Environment:
+        Variables:
+          MEMBERS_TABLE: !Ref MembersTable
+          USERS_TABLE: !Ref UsersTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MembersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        UpdateMemberAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /members/{user_id}
+            Method: PATCH
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  DeleteMemberFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "delete-member-${Environment}"
+      Handler: members.delete_member.lambda_handler
+      Environment:
+        Variables:
+          MEMBERS_TABLE: !Ref MembersTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MembersTable
+      Events:
+        DeleteMemberAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /members/{user_id}
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer        
+
 
 Outputs:
   ApiUrl:
@@ -655,3 +787,12 @@ Outputs:
   GetUserBuildingsLambda:
     Description: "Get User Buildings Lambda Function"
     Value: !Ref GetUserBuildingsFunction
+  MembersTableName:
+    Description: "Members Table Name"
+    Value: !Ref MembersTable
+  CreateMemberLambda:
+    Description: "Create Member Lambda Function"
+    Value: !Ref CreateMemberFunction
+  GetMemberLambda:
+    Description: "Get Member Lambda Function"
+    Value: !Ref GetMemberFunction  
