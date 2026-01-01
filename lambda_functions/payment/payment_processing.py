@@ -15,10 +15,10 @@ class DecimalEncoder(json.JSONEncoder):
 def lambda_handler(event, context):
     try:
         print("=== PAYMENT PROCESSING ===")
-        
+
         http_method = event.get('httpMethod')
         path = event.get('path', '')
-        
+
         if http_method == 'POST' and '/payment/process' in path:
             return process_payment(event)
         elif http_method == 'GET' and '/payment' in path:
@@ -55,7 +55,7 @@ def process_payment(event):
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
             'body': json.dumps({'message': 'Request body is missing'})
         }
-    
+
     try:
         body = json.loads(event['body'])
     except json.JSONDecodeError:
@@ -66,7 +66,7 @@ def process_payment(event):
         }
 
     payment_method = body.get('payment_method', '').lower()
-    
+
     if payment_method == 'cash':
         return process_cash_payment(body)
     elif payment_method == 'online':
@@ -79,7 +79,9 @@ def process_payment(event):
         }
 
 def process_cash_payment(body):
-    required_fields = ['maintenance_id', 'amount', 'received_by', 'user_id']
+    # ✅ REMOVED: amount, received_by, payer_name, payer_contact, notes
+    # ✅ ADDED: unit_maintenance_id, floor, wings, unit_number
+    required_fields = ['maintenance_id', 'user_id', 'unit_maintenance_id']
     for field in required_fields:
         if field not in body:
             return {
@@ -90,11 +92,19 @@ def process_cash_payment(body):
 
     dynamodb = boto3.resource('dynamodb')
     maintenance_table = dynamodb.Table('MaintenanceRecords-dev')
+    unit_maintenance_table = dynamodb.Table('UnitMaintenanceBills-dev')
 
     try:
+        # Get maintenance record
         maintenance_response = maintenance_table.get_item(
             Key={'maintenance_id': body['maintenance_id']}
         )
+        
+        # Get unit maintenance record
+        unit_response = unit_maintenance_table.get_item(
+            Key={'unit_maintenance_id': body['unit_maintenance_id']}
+        )
+        
     except Exception as e:
         print(f"DynamoDB error: {str(e)}")
         return {
@@ -109,36 +119,77 @@ def process_cash_payment(body):
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
             'body': json.dumps({'message': 'Maintenance not found'})
         }
+    
+    if 'Item' not in unit_response:
+        return {
+            'statusCode': 404,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'message': 'Unit maintenance bill not found'})
+        }
 
     maintenance_record = maintenance_response['Item']
+    unit_record = unit_response['Item']
+    
+    # Verify user owns this unit maintenance
+    if unit_record.get('user_id') != body['user_id']:
+        return {
+            'statusCode': 403,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'message': 'Unauthorized: User does not own this unit maintenance'})
+        }
+
     payment_id = f"PAY-{uuid.uuid4().hex[:8].upper()}"
+    transaction_id = f"CASH-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     current_time = datetime.utcnow().isoformat()
 
-    amount_decimal = Decimal(str(body['amount']))
+    # ✅ Get amount from unit maintenance record
+    amount_decimal = Decimal(str(unit_record.get('total_amount', '0')))
+    
+    # ✅ Get user details from Users table
+    users_table = dynamodb.Table('Users-dev')
+    try:
+        user_response = users_table.get_item(
+            Key={'user_id': body['user_id']}
+        )
+    except Exception as e:
+        print(f"Error fetching user details: {str(e)}")
+
+    # ✅ Get unit details from unit record
+    unit_no = unit_record.get('unit_no', '')
+    wings = unit_record.get('wings', '')
+    floor = unit_record.get('floor', '')
+
+    # ✅ Override with request values if provided
+    unit_no = body.get('unit_number', unit_no)
+    wings = body.get('wings', wings)
+    floor = body.get('floor', floor)
 
     payment_record = {
         'payment_id': payment_id,
         'maintenance_id': body['maintenance_id'],
+        'unit_maintenance_id': body['unit_maintenance_id'],
         'building_id': maintenance_record['building_id'],
         'user_id': body['user_id'],
         'amount': amount_decimal,
         'payment_method': 'cash',
         'payment_status': 'completed',
-        'transaction_id': f"CASH-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-        'received_by': body['received_by'],
-        'payer_name': body.get('payer_name', ''),
-        'payer_contact': body.get('payer_contact', ''),
-        'notes': body.get('notes', ''),
+        'transaction_id': transaction_id,
+        'received_by': 'System',  # ✅ Default value
+        'wings': wings,
+        'floor': floor,
+        'unit_no': unit_no,
         'payment_date': current_time,
         'created_at': current_time,
         'updated_at': current_time
     }
 
     payment_table = dynamodb.Table('PaymentRecords-dev')
-    
+
     try:
+        # Save payment
         payment_table.put_item(Item=payment_record)
-        
+
+        # Update maintenance status
         maintenance_table.update_item(
             Key={'maintenance_id': body['maintenance_id']},
             UpdateExpression='SET #status = :status, updated_at = :updated_at',
@@ -148,6 +199,17 @@ def process_cash_payment(body):
                 ':updated_at': current_time
             }
         )
+        
+        # Update unit maintenance payment status
+        unit_maintenance_table.update_item(
+            Key={'unit_maintenance_id': body['unit_maintenance_id']},
+            UpdateExpression='SET payment_status = :payment_status, updated_at = :updated_at',
+            ExpressionAttributeValues={
+                ':payment_status': 'paid',
+                ':updated_at': current_time
+            }
+        )
+        
     except Exception as e:
         print(f"DynamoDB write error: {str(e)}")
         return {
@@ -158,23 +220,27 @@ def process_cash_payment(body):
 
     print(f"Cash payment: {payment_id}")
 
-    response_payment = payment_record.copy()
-    response_payment['amount'] = float(response_payment['amount'])
-    
+    # ✅ New response format
     return {
         'statusCode': 201,
         'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
         'body': json.dumps({
-            'message': 'Cash payment successful',
+            'success': True,
+            'message': 'Cash payment processed successfully',
+            'transaction_id': transaction_id,
+            'unit_number': unit_no,
+            'payment_status': 'completed',
+            'payment_type': 'cash',
+            'paid_date': current_time,
             'payment_id': payment_id,
-            'receipt_number': f"RC-{payment_id}",
-            'payment_method': 'cash',
-            'payment': response_payment
+            'amount': float(amount_decimal)
         }, cls=DecimalEncoder)
     }
 
 def process_online_payment(body):
-    required_fields = ['maintenance_id', 'amount', 'card_number', 'card_holder', 'expiry_date', 'cvv', 'user_id']
+    # ✅ REMOVED: card_number, card_holder, expiry_date, cvv, payer_email, payer_contact, payer_name
+    # ✅ ADDED: unit_maintenance_id, floor, wings, unit_number
+    required_fields = ['maintenance_id', 'user_id', 'unit_maintenance_id']
     for field in required_fields:
         if field not in body:
             return {
@@ -185,11 +251,19 @@ def process_online_payment(body):
 
     dynamodb = boto3.resource('dynamodb')
     maintenance_table = dynamodb.Table('MaintenanceRecords-dev')
+    unit_maintenance_table = dynamodb.Table('UnitMaintenanceBills-dev')
 
     try:
+        # Get maintenance record
         maintenance_response = maintenance_table.get_item(
             Key={'maintenance_id': body['maintenance_id']}
         )
+        
+        # Get unit maintenance record
+        unit_response = unit_maintenance_table.get_item(
+            Key={'unit_maintenance_id': body['unit_maintenance_id']}
+        )
+        
     except Exception as e:
         print(f"DynamoDB error: {str(e)}")
         return {
@@ -204,358 +278,139 @@ def process_online_payment(body):
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
             'body': json.dumps({'message': 'Maintenance not found'})
         }
+    
+    if 'Item' not in unit_response:
+        return {
+            'statusCode': 404,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'message': 'Unit maintenance bill not found'})
+        }
 
     maintenance_record = maintenance_response['Item']
-
-    card_number = str(body['card_number']).replace(' ', '').replace('-', '')
+    unit_record = unit_response['Item']
     
-    if len(card_number) != 16 or not card_number.isdigit():
+    # Verify user owns this unit maintenance
+    if unit_record.get('user_id') != body['user_id']:
         return {
-            'statusCode': 400,
+            'statusCode': 403,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Invalid card number. Must be 16 digits.'})
+            'body': json.dumps({'message': 'Unauthorized: User does not own this unit maintenance'})
         }
 
-    cvv = str(body['cvv'])
-    if len(cvv) != 3 or not cvv.isdigit():
-        return {
-            'statusCode': 400,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Invalid CVV. Must be 3 digits.'})
-        }
+    # ✅ Get amount from unit maintenance record
+    amount_decimal = Decimal(str(unit_record.get('total_amount', '0')))
+    
+    # ✅ Get user details from Users table
+    users_table = dynamodb.Table('Users-dev')
+    try:
+        user_response = users_table.get_item(
+            Key={'user_id': body['user_id']}
+        )
+    except Exception as e:
+        print(f"Error fetching user details: {str(e)}")
 
+    # ✅ Get unit details from unit record
+    unit_no = unit_record.get('unit_no', '')
+    wings = unit_record.get('wings', '')
+    floor = unit_record.get('floor', '')
+
+    # ✅ Override with request values if provided
+    unit_no = body.get('unit_number', unit_no)
+    wings = body.get('wings', wings)
+    floor = body.get('floor', floor)
+
+    # ✅ Simulate online payment (mock payment gateway)
     transaction_id = f"TXN{datetime.now().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:6].upper()}"
     payment_id = f"PAY-{uuid.uuid4().hex[:8].upper()}"
     current_time = datetime.utcnow().isoformat()
 
-    def get_card_type(card_num):
-        if card_num.startswith('4'):
-            return 'visa'
-        elif card_num.startswith('5'):
-            return 'mastercard'
-        elif card_num.startswith('34') or card_num.startswith('37'):
-            return 'amex'
-        elif card_num.startswith('6'):
-            return 'discover'
-        else:
-            return 'unknown'
-
-    amount_decimal = Decimal(str(body['amount']))
+    # ✅ Mock payment gateway response
+    gateway_reference = f"GW-{uuid.uuid4().hex[:8].upper()}"
+    gateway_status = 'approved'
+    
+    if gateway_status != 'approved':
+        return {
+            'statusCode': 400,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({
+                'success': False,
+                'message': 'Payment failed. Please try again.'
+            })
+        }
 
     payment_record = {
         'payment_id': payment_id,
         'maintenance_id': body['maintenance_id'],
+        'unit_maintenance_id': body['unit_maintenance_id'],
         'building_id': maintenance_record['building_id'],
         'user_id': body['user_id'],
         'amount': amount_decimal,
         'payment_method': 'online',
         'payment_status': 'completed',
         'transaction_id': transaction_id,
-        'gateway_reference': f"GW-{uuid.uuid4().hex[:8].upper()}",
-        'card_last_four': card_number[-4:],
-        'card_type': get_card_type(card_number),
-        'payer_name': body['card_holder'],
-        'payer_email': body.get('payer_email', ''),
-        'payer_contact': body.get('payer_contact', ''),
+        'gateway_reference': gateway_reference,
+        'gateway_status': gateway_status,
+        'card_last_four': '1111',
+        'card_type': 'visa',
+        'wings': wings,
+        'floor': floor,
+        'unit_no': unit_no,
         'payment_date': current_time,
         'created_at': current_time,
         'updated_at': current_time
     }
 
     payment_table = dynamodb.Table('PaymentRecords-dev')
-    
+
     try:
         payment_table.put_item(Item=payment_record)
-        
+
         maintenance_table.update_item(
             Key={'maintenance_id': body['maintenance_id']},
-            UpdateExpression= SET,
+            UpdateExpression='SET
             ExpressionAttributeNames={'#status': 'status'},
             ExpressionAttributeValues={
                 ':status': 'paid',
                 ':updated_at': current_time
             }
         )
+        
+        unit_maintenance_table.update_item(
+            Key={'unit_maintenance_id': body['unit_maintenance_id']},
+            UpdateExpression='SET payment_status = :payment_status, updated_at = :updated_at',
+            ExpressionAttributeValues={
+                ':payment_status': 'paid',
+                ':updated_at': current_time
+            }
+        )
+        
     except Exception as e:
         print(f"DynamoDB write error: {str(e)}")
         return {
             'statusCode': 500,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Failed to save payment'})
+            'body': json.dumps({
+                'success': False,
+                'message': 'Failed to save payment'
+            })
         }
 
     print(f"Online payment: {payment_id}")
 
-    response_payment = payment_record.copy()
-    response_payment['amount'] = float(response_payment['amount'])
-    
     return {
         'statusCode': 201,
         'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
         'body': json.dumps({
-            'message': 'Online payment successful',
+            'success': True,
+            'message': 'Online payment processed successfully',
+            'transaction_id': transaction_id,
+            'unit_number': unit_no,
+            'payment_status': 'completed',
+            'payment_type': 'online',
+            'paid_date': current_time,
             'payment_id': payment_id,
-            'transaction_id': transaction_id,
-            'receipt_number': f"RC-{payment_id}",
-            'payment_method': 'online',
-            'payment': {
-                **response_payment,
-                'card_number': f"**** **** **** {card_number[-4:]}"
-            }
+            'amount': float(amount_decimal),
+            'gateway_reference': gateway_reference
         }, cls=DecimalEncoder)
     }
 
-def get_payments_by_maintenance(event):
-    query_params = event.get('queryStringParameters', {}) or {}
-    maintenance_id = query_params.get('maintenance_id')
-
-    if not maintenance_id:
-        return {
-            'statusCode': 400,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'maintenance_id query parameter is required'})
-        }
-
-    dynamodb = boto3.resource('dynamodb')
-    table = dynamodb.Table('PaymentRecords-dev')
-
-    try:
-        response = table.scan(
-            FilterExpression='maintenance_id = :maintenance_id',
-            ExpressionAttributeValues={':maintenance_id': maintenance_id}
-        )
-    except Exception as e:
-        print(f"DynamoDB error: {str(e)}")
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Database error'})
-        }
-
-    def convert_decimals(obj):
-        if isinstance(obj, Decimal):
-            return float(obj) if '.' in str(obj) else int(obj)
-        elif isinstance(obj, dict):
-            return {k: convert_decimals(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [convert_decimals(i) for i in obj]
-        return obj
-
-    payments = [convert_decimals(item) for item in response.get('Items', [])]
-    total_paid = sum(p['amount'] for p in payments)
-
-    return {
-        'statusCode': 200,
-        'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-        'body': json.dumps({
-            'maintenance_id': maintenance_id,
-            'payments': payments,
-            'summary': {
-                'total_payments': len(payments),
-                'total_amount': total_paid,
-                'cash_payments': len([p for p in payments if p.get('payment_method') == 'cash']),
-                'online_payments': len([p for p in payments if p.get('payment_method') == 'online'])
-            }
-        }, cls=DecimalEncoder)
-    }
-
-def get_payment_by_id(event):
-    query_params = event.get('queryStringParameters', {}) or {}
-    payment_id = query_params.get('payment_id')
-
-    if not payment_id:
-        return {
-            'statusCode': 400,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'payment_id query parameter is required'})
-        }
-
-    dynamodb = boto3.resource('dynamodb')
-    table = dynamodb.Table('PaymentRecords-dev')
-
-    try:
-        response = table.get_item(Key={'payment_id': payment_id})
-    except Exception as e:
-        print(f"DynamoDB error: {str(e)}")
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Database error'})
-        }
-
-    if 'Item' not in response:
-        return {
-            'statusCode': 404,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Payment not found'})
-        }
-
-    def convert_decimals(obj):
-        if isinstance(obj, Decimal):
-            return float(obj) if '.' in str(obj) else int(obj)
-        elif isinstance(obj, dict):
-            return {k: convert_decimals(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [convert_decimals(i) for i in obj]
-        return obj
-
-    payment = convert_decimals(response['Item'])
-
-    return {
-        'statusCode': 200,
-        'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-        'body': json.dumps(payment, cls=DecimalEncoder)
-    }
-
-def generate_receipt(event):
-    query_params = event.get('queryStringParameters', {}) or {}
-    payment_id = query_params.get('payment_id')
-
-    if not payment_id:
-        return {
-            'statusCode': 400,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'payment_id query parameter is required'})
-        }
-
-    dynamodb = boto3.resource('dynamodb')
-    payment_table = dynamodb.Table('PaymentRecords-dev')
-
-    try:
-        payment_response = payment_table.get_item(Key={'payment_id': payment_id})
-    except Exception as e:
-        print(f"DynamoDB error: {str(e)}")
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Database error'})
-        }
-
-    if 'Item' not in payment_response:
-        return {
-            'statusCode': 404,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Payment not found'})
-        }
-
-    payment_record = payment_response['Item']
-
-    maintenance_table = dynamodb.Table('MaintenanceRecords-dev')
-    
-    try:
-        maintenance_response = maintenance_table.get_item(
-            Key={'maintenance_id': payment_record['maintenance_id']}
-        )
-    except Exception as e:
-        print(f"DynamoDB error: {str(e)}")
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Database error'})
-        }
-
-    if 'Item' not in maintenance_response:
-        return {
-            'statusCode': 404,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Maintenance not found'})
-        }
-
-    maintenance_record = maintenance_response['Item']
-
-    amount = float(payment_record['amount']) if isinstance(payment_record['amount'], Decimal) else payment_record['amount']
-
-    receipt_data = {
-        'receipt_number': f"RC-{payment_id}",
-        'payment_id': payment_id,
-        'transaction_id': payment_record['transaction_id'],
-        'payment_date': payment_record['payment_date'],
-        'amount': amount,
-        'payment_method': payment_record['payment_method'],
-        'payer_name': payment_record.get('payer_name', 'N/A'),
-        'user_id': payment_record.get('user_id'),
-        'building_id': payment_record['building_id'],
-        'maintenance_id': payment_record['maintenance_id'],
-        'bill_name': maintenance_record['bill_name'],
-        'description': maintenance_record.get('description', ''),
-        'status': 'PAID',
-        'issued_date': datetime.utcnow().isoformat()
-    }
-
-    return {
-        'statusCode': 200,
-        'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-        'body': json.dumps({
-            'message': 'Receipt generated',
-            'receipt': receipt_data
-        }, cls=DecimalEncoder)
-    }
-
-def verify_payment(event):
-    if 'body' not in event or not event['body']:
-        return {
-            'statusCode': 400,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Request body is missing'})
-        }
-    
-    try:
-        body = json.loads(event['body'])
-    except json.JSONDecodeError:
-        return {
-            'statusCode': 400,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Invalid JSON in request body'})
-        }
-
-    transaction_id = body.get('transaction_id')
-
-    if not transaction_id:
-        return {
-            'statusCode': 400,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'transaction_id is required'})
-        }
-
-    dynamodb = boto3.resource('dynamodb')
-    table = dynamodb.Table('PaymentRecords-dev')
-
-    try:
-        response = table.scan(
-            FilterExpression='transaction_id = :transaction_id',
-            ExpressionAttributeValues={':transaction_id': transaction_id}
-        )
-    except Exception as e:
-        print(f"DynamoDB error: {str(e)}")
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Database error'})
-        }
-
-    items = response.get('Items', [])
-
-    if not items:
-        return {
-            'statusCode': 404,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Transaction not found'})
-        }
-
-    payment_record = items[0]
-
-    amount = float(payment_record['amount']) if isinstance(payment_record['amount'], Decimal) else payment_record['amount']
-
-    return {
-        'statusCode': 200,
-        'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-        'body': json.dumps({
-            'transaction_id': transaction_id,
-            'payment_status': payment_record['payment_status'],
-            'payment_id': payment_record['payment_id'],
-            'user_id': payment_record.get('user_id'),
-            'amount': amount,
-            'payment_date': payment_record['payment_date'],
-            'verified': True
-        }, cls=DecimalEncoder)
-    }

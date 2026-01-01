@@ -7,7 +7,6 @@ import calendar
 
 dynamodb = boto3.resource('dynamodb')
 MAINTENANCE_TABLE = os.environ.get('TABLE_MAINTENANCE', 'MaintenanceRecords-dev')
-PAYMENT_TABLE = os.environ.get('TABLE_PAYMENT', 'PaymentRecords-dev')
 
 def get_month_name(month_number):
     """Convert month number to month name"""
@@ -58,26 +57,6 @@ def lambda_handler(event, context):
             }
 
         item = response['Item']
-        payment_table = dynamodb.Table(PAYMENT_TABLE)
-
-        payment_response = payment_table.scan(
-            FilterExpression=Attr('maintenance_id').eq(maintenance_id)
-        )
-
-        payments = payment_response.get('Items', [])
-
-        total_amount = 0
-        paid_amount = 0
-        unpaid_amount = 0
-
-        for payment in payments:
-            amount = float(payment.get('amount', 0))
-            total_amount += amount
-
-            if payment.get('payment_status') == 'PAID':
-                paid_amount += amount
-            else:
-                unpaid_amount += amount
 
         maintenance_data = {
             'maintenance_id': item.get('maintenance_id'),
@@ -93,9 +72,6 @@ def lambda_handler(event, context):
             'user_id': item.get('user_id'),
             'status': item.get('status', 'pending'),
             'created_at': item.get('created_at')
-            'paid_amount': paid_amount,
-            'unpaid_amount': unpaid_amount,
-            'total_amount': total_amount
         }
 
         if 'month' in item and isinstance(item['month'], (int, float)):
@@ -133,3 +109,4 @@ def lambda_handler(event, context):
                 'error': str(e)
             })
         }
+

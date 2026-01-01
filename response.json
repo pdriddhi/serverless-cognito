@@ -1,1 +1,0 @@
-{"statusCode": 401, "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token", "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS"}, "body": "{\"success\": false, \"message\": \"Unauthorized: Invalid or missing token\"}"}

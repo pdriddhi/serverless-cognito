@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Complete Serverless backend - DynamoDB tables + Lambda functions + API Gateway - UPDATED
+Description: Complete Serverless backend - DynamoDB tables + Lambda functions + API Gateway
 
 Globals:
   Function:
@@ -12,7 +12,7 @@ Globals:
 Parameters:
   Environment:
     Type: String
-    Default: dev
+    Default: dev  # 👈 Default dev कर दिया
     AllowedValues:
       - dev
       - staging
@@ -30,10 +30,11 @@ Parameters:
     Description: Cognito App Client ID
 
 Resources:
-
-
+  # ==================== DYNAMODB TABLES ====================
   ApartmentsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "ApartmentsTable-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -46,6 +47,8 @@ Resources:
 
   BuildingsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "Buildings-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -63,10 +66,12 @@ Resources:
             - AttributeName: user_id
               KeyType: HASH
           Projection:
-             ProjectionType: ALL
+            ProjectionType: ALL
 
   LoginUsersTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "LoginUsers-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -79,6 +84,8 @@ Resources:
 
   SuperAdminsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "SuperAdmins-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -91,6 +98,8 @@ Resources:
 
   UserUnitsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "UserUnits-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -103,6 +112,8 @@ Resources:
 
   UsersTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "Users-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -124,6 +135,8 @@ Resources:
 
   MaintenanceTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "MaintenanceRecords-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -145,6 +158,8 @@ Resources:
 
   PaymentTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "PaymentRecords-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -152,6 +167,8 @@ Resources:
         - AttributeName: payment_id
           AttributeType: S
         - AttributeName: maintenance_id
+          AttributeType: S
+        - AttributeName: unit_maintenance_id
           AttributeType: S
       KeySchema:
         - AttributeName: payment_id
@@ -163,9 +180,17 @@ Resources:
               KeyType: HASH
           Projection:
             ProjectionType: ALL
+        - IndexName: UnitMaintenanceIndex
+          KeySchema:
+            - AttributeName: unit_maintenance_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
 
   UserBuildingsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "UserBuildingsTable-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -187,6 +212,8 @@ Resources:
 
   UnitMaintenanceTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "UnitMaintenanceBills-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -202,6 +229,8 @@ Resources:
       KeySchema:
         - AttributeName: unit_maintenance_id
           KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
       GlobalSecondaryIndexes:
         - IndexName: BuildingIndex
           KeySchema:
@@ -218,25 +247,52 @@ Resources:
           Projection:
             ProjectionType: ALL
 
+  MembersTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "MembersTable-${Environment}"
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: building_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      GlobalSecondaryIndexes:
+        - IndexName: building-index
+          KeySchema:
+            - AttributeName: building_id
+              KeyType: HASH
+            - AttributeName: user_id
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  # ==================== API GATEWAY ====================
   ServerlessApi:
     Type: AWS::Serverless::Api
     Properties:
-      Name: !Sub "ServerlessAPI-${Environment}"
+      Name: !Sub "maintenance-serverless-api-${Environment}-${AWS::StackName}"
       StageName: !Ref Environment
       Cors:
         AllowMethods: "'GET,POST,PUT,DELETE,PATCH,OPTIONS'"
         AllowHeaders: "'Content-Type,Authorization'"
         AllowOrigin: "'*'"
       Auth:
+        DefaultAuthorizer: CognitoAuthorizer
         Authorizers:
-           CognitoAuthorizer:
-             UserPoolArn: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"
-             Identity:
-               Header: Authorization
-               ValidationExpression: ^Bearer [-0-9a-zA-Z\._]*$
-               ReauthorizeEvery: 0
+          CognitoAuthorizer:
+            UserPoolArn: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"
+            Identity:
+              Header: Authorization
+              ValidationExpression: ^Bearer [-0-9a-zA-Z\._]*$
+              ReauthorizeEvery: 0
 
-
+  # ==================== AUTH FUNCTIONS ====================
   LoginFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -264,7 +320,7 @@ Resources:
                 - cognito-idp:InitiateAuth
                 - cognito-idp:RespondToAuthChallenge
                 - cognito-idp:AdminUpdateUserAttributes
-              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"  # CHANGED
+              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"
       Events:
         LoginAPI:
           Type: Api
@@ -272,6 +328,8 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /login
             Method: POST
+            Auth:
+              None: true
 
   RegisterFunction:
     Type: AWS::Serverless::Function
@@ -298,7 +356,7 @@ Resources:
                 - cognito-idp:AdminCreateUser
                 - cognito-idp:AdminSetUserPassword
                 - cognito-idp:AdminDeleteUser
-              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"  # CHANGED
+              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"
       Events:
         RegisterAPI:
           Type: Api
@@ -306,7 +364,10 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /register
             Method: POST
+            Auth:
+              None: true
 
+  # ==================== BUILDING FUNCTIONS ====================
   AddBuildingFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -328,6 +389,8 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /add_building
             Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   GetBuildingFunction:
     Type: AWS::Serverless::Function
@@ -347,6 +410,8 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /get_building
             Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   UpdateBuildingFunction:
     Type: AWS::Serverless::Function
@@ -366,6 +431,8 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /update_building
             Method: PATCH
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   DeleteBuildingFunction:
     Type: AWS::Serverless::Function
@@ -385,6 +452,10 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /delete_building
             Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  # ==================== UNIT FUNCTIONS ====================
   AssignUnitFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -393,9 +464,15 @@ Resources:
       Environment:
         Variables:
           TABLE_USERUNITS: !Ref UserUnitsTable
+          USERS_TABLE: !Ref UsersTable
+          TABLE_BUILDINGS: !Ref BuildingsTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UserUnitsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
       Events:
         AssignUnitAPI:
           Type: Api
@@ -403,6 +480,8 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /assign_unit
             Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   GetMyUnitsFunction:
     Type: AWS::Serverless::Function
@@ -412,9 +491,12 @@ Resources:
       Environment:
         Variables:
           TABLE_USERUNITS: !Ref UserUnitsTable
+          TABLE_BUILDINGS: !Ref BuildingsTable
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref UserUnitsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref BuildingsTable
       Events:
         GetMyUnitsAPI:
           Type: Api
@@ -422,51 +504,114 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /get_my_units
             Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
 
-  UnitMaintenanceBillFunction:
+  GetUserUnitsFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub "unit-maintenance-bill-${Environment}"
-      Handler: unit.unit_maintenance_bill.lambda_handler
+      FunctionName: !Sub "get-user-units-${Environment}"
+      Handler: unit.user_units_get.lambda_handler
+      Environment:
+        Variables:
+          USER_UNITS_TABLE: !Ref UserUnitsTable
+          USERS_TABLE: !Ref UsersTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserUnitsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        GetUserUnitsAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /user_units_get
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  # ==================== UNIT MAINTENANCE FUNCTIONS ====================
+  UnitMaintenanceCreateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "unit-maintenance-create-${Environment}"
+      Handler: unit.create_unit_maintenance.lambda_handler
       Environment:
         Variables:
           TABLE_UNIT_MAINTENANCE: !Ref UnitMaintenanceTable
+          USERS_TABLE: !Ref UsersTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UnitMaintenanceTable
-        - Statement:
-          - Effect: Allow
-            Action:
-              - cognito-idp:AdminGetUser
-              - cognito-idp:ListUsers
-            Resource: !Sub arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
       Events:
-        UnitMaintenanceBillGET:
+        UnitMaintenanceCreateAPI:
           Type: Api
           Properties:
             RestApiId: !Ref ServerlessApi
-            Path: /unit_maintenance_bill
-            Method: GET
-        UnitMaintenanceBillPOST:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ServerlessApi
-            Path: /unit_maintenance_bill
+            Path: /unit_maintenance
             Method: POST
-        UnitMaintenanceBillPUT:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ServerlessApi
-            Path: /unit_maintenance_bill/{id}
-            Method: PATCH
-        UnitMaintenanceBillDELETE:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ServerlessApi
-            Path: /unit_maintenance_bill/{id}
-            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
 
-  MaintenanceFunction:
+  UnitMaintenanceGetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "unit-maintenance-get-${Environment}"
+      Handler: unit.get_unit_maintenance.lambda_handler
+      Environment:
+        Variables:
+          TABLE_UNIT_MAINTENANCE: !Ref UnitMaintenanceTable
+          USERS_TABLE: !Ref UsersTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UnitMaintenanceTable
+      Events:
+        UnitMaintenanceGetAllAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /unit_maintenance
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        UnitMaintenanceGetByIdAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /unit_maintenance/{unit_maintenance_id}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  UnitMaintenanceDeleteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "unit-maintenance-delete-${Environment}"
+      Handler: unit.delete_unit_maintenance.lambda_handler
+      Environment:
+        Variables:
+          TABLE_UNIT_MAINTENANCE: !Ref UnitMaintenanceTable
+          USERS_TABLE: !Ref UsersTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UnitMaintenanceTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        UnitMaintenanceDeleteAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /unit_maintenance/{unit_maintenance_id}
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  # ==================== MAINTENANCE FUNCTIONS ====================
+  MaintenanceManagementFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "maintenance-management-${Environment}"
@@ -490,84 +635,21 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /maintenance
             Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
         MaintenancePOST:
           Type: Api
           Properties:
             RestApiId: !Ref ServerlessApi
             Path: /maintenance
             Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
 
-  PaymentFunction:
+  GetMaintenanceByIdFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub "payment-processing-${Environment}"
-      Handler: payment.payment_processing.lambda_handler
-      Environment:
-        Variables:
-          TABLE_MAINTENANCE: !Ref MaintenanceTable
-          TABLE_PAYMENT: !Ref PaymentTable
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref MaintenanceTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref PaymentTable
-      Events:
-        PaymentCashPOST:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ServerlessApi
-            Path: /payment/cash
-            Method: POST
-        PaymentOnlinePOST:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ServerlessApi
-            Path: /payment/online
-            Method: POST
-
-  GetUserBuildingFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: !Sub "get-user-building-${Environment}"
-      Handler: building.get_user_building.lambda_handler
-      Environment:
-        Variables:
-          TABLE_BUILDINGS: !Ref BuildingsTable
-      Policies:
-        - DynamoDBReadPolicy:
-            TableName: !Ref BuildingsTable
-      Events:
-        GetUserBuildingApi:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ServerlessApi
-            Path: /get_user_building
-            Method: GET
-  GetUserBuildingsFunction:
-   Type: AWS::Serverless::Function
-   Properties:
-    FunctionName: !Sub "get-user-buildings-${Environment}"
-    Handler: building.get_user_buildings.lambda_handler
-    Environment:
-      Variables:
-        TABLE_BUILDINGS: !Ref BuildingsTable
-    Policies:
-      - DynamoDBReadPolicy:
-          TableName: !Ref BuildingsTable
-    Events:
-      GetUserBuildingsAPI:
-        Type: Api
-        Properties:
-          RestApiId: !Ref ServerlessApi
-          Path: /get_user_buildings
-          Method: GET
-          Auth:
-            Authorizer: CognitoAuthorizer
-
-  GetMaintenanceFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: !Sub "get-maintenance-${Environment}"
+      FunctionName: !Sub "get-maintenance-by-id-${Environment}"
       Handler: maintenance.get_maintenance.lambda_handler
       Environment:
         Variables:
@@ -576,12 +658,15 @@ Resources:
         - DynamoDBReadPolicy:
             TableName: !Ref MaintenanceTable
       Events:
-        GetMaintenanceAPI:
+        GetMaintenanceByIdAPI:
           Type: Api
           Properties:
             RestApiId: !Ref ServerlessApi
-            Path: /get_maintenance
+            Path: /maintenance/{maintenance_id}
             Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
   GetBuildingMaintenanceFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -598,31 +683,231 @@ Resources:
           Type: Api
           Properties:
             RestApiId: !Ref ServerlessApi
-            Path: /get_building_maintenance
+            Path: /maintenance/building/{building_id}
             Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   DeleteMaintenanceFunction:
-   Type: AWS::Serverless::Function
-   Properties:
-    FunctionName: !Sub "delete-maintenance-${Environment}"
-    Handler: maintenance.delete_maintenance.lambda_handler
-    Environment:
-      Variables:
-        TABLE_MAINTENANCE: !Ref MaintenanceTable
-        TABLE_PAYMENT: !Ref PaymentTable
-    Policies:
-      - DynamoDBCrudPolicy:
-          TableName: !Ref MaintenanceTable
-      - DynamoDBReadPolicy:
-          TableName: !Ref PaymentTable
-    Events:
-      DeleteMaintenanceAPI:
-        Type: Api
-        Properties:
-          RestApiId: !Ref ServerlessApi
-          Path: /delete_maintenance
-          Method: DELETE
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "delete-maintenance-${Environment}"
+      Handler: maintenance.delete_maintenance.lambda_handler
+      Environment:
+        Variables:
+          TABLE_MAINTENANCE: !Ref MaintenanceTable
+          TABLE_PAYMENT: !Ref PaymentTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MaintenanceTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref PaymentTable
+      Events:
+        DeleteMaintenanceAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /maintenance/{maintenance_id}
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
 
+  # ==================== PAYMENT FUNCTIONS ====================
+  PaymentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "payment-processing-${Environment}"
+      Handler: payment.payment_processing.lambda_handler
+      Environment:
+        Variables:
+          TABLE_MAINTENANCE: !Ref MaintenanceTable
+          TABLE_PAYMENT: !Ref PaymentTable
+          TABLE_UNIT_MAINTENANCE: !Ref UnitMaintenanceTable
+          TABLE_USERS: !Ref UsersTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MaintenanceTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PaymentTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UnitMaintenanceTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        PaymentProcessPOST:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /payment/process
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        PaymentGET:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /payment
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        PaymentReceipt:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /payment/receipt
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        PaymentVerify:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /payment/verify
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  # ==================== USER BUILDING FUNCTIONS ====================
+  GetUserBuildingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "get-user-building-${Environment}"
+      Handler: building.get_user_building.lambda_handler
+      Environment:
+        Variables:
+          TABLE_BUILDINGS: !Ref BuildingsTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BuildingsTable
+      Events:
+        GetUserBuildingAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /get_user_building
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  GetUserBuildingsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "get-user-buildings-${Environment}"
+      Handler: building.get_user_buildings.lambda_handler
+      Environment:
+        Variables:
+          TABLE_BUILDINGS: !Ref BuildingsTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BuildingsTable
+      Events:
+        GetUserBuildingsAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /get_user_buildings
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  # ==================== MEMBER FUNCTIONS ====================
+  CreateMemberFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "create-member-${Environment}"
+      Handler: members.create_member.lambda_handler
+      Environment:
+        Variables:
+          MEMBERS_TABLE: !Ref MembersTable
+          USERS_TABLE: !Ref UsersTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MembersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        CreateMemberAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /members
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  GetMemberFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "get-member-${Environment}"
+      Handler: members.get_member.lambda_handler
+      Environment:
+        Variables:
+          MEMBERS_TABLE: !Ref MembersTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref MembersTable
+      Events:
+        GetAllMembersAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /members
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        GetMemberByIdAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /members/{user_id}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  UpdateMemberFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "update-member-${Environment}"
+      Handler: members.update_member.lambda_handler
+      Environment:
+        Variables:
+          MEMBERS_TABLE: !Ref MembersTable
+          USERS_TABLE: !Ref UsersTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MembersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        UpdateMemberAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /members/{user_id}
+            Method: PATCH
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  DeleteMemberFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "delete-member-${Environment}"
+      Handler: members.delete_member.lambda_handler
+      Environment:
+        Variables:
+          MEMBERS_TABLE: !Ref MembersTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MembersTable
+      Events:
+        DeleteMemberAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /members/{user_id}
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
 
 Outputs:
   ApiUrl:
@@ -649,9 +934,15 @@ Outputs:
   UnitMaintenanceTableName:
     Description: "Unit Maintenance Bills DynamoDB Table"
     Value: !Ref UnitMaintenanceTable
-  UnitMaintenanceFunctionArn:
-    Description: "Unit Maintenance Bill Lambda Function ARN"
-    Value: !GetAtt UnitMaintenanceBillFunction.Arn
   GetUserBuildingsLambda:
     Description: "Get User Buildings Lambda Function"
     Value: !Ref GetUserBuildingsFunction
+  MembersTableName:
+    Description: "Members Table Name"
+    Value: !Ref MembersTable
+  CreateMemberLambda:
+    Description: "Create Member Lambda Function"
+    Value: !Ref CreateMemberFunction
+  GetMemberLambda:
+    Description: "Get Member Lambda Function"
+    Value: !Ref GetMemberFunction

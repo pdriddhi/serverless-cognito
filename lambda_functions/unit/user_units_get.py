@@ -1,5 +1,6 @@
 import json
 import boto3
+import os
 from decimal import Decimal
 
 dynamodb = boto3.resource('dynamodb')
@@ -17,39 +18,35 @@ def lambda_handler(event, context):
     try:
         print("User Units Get function started")
 
-        user_units_table = dynamodb.Table('UserUnits-prod')
-        users_table = dynamodb.Table('Users-prod')   # ← New Users table
+        user_units_table = dynamodb.Table(os.environ['USER_UNITS_TABLE'])
+        users_table = dynamodb.Table(os.environ['USERS_TABLE'])
 
-        # Step 1: Fetch all units
         response = user_units_table.scan()
         units = response.get('Items', [])
 
         final_units = []
 
-        # Step 2: Fetch name, mobile, wings from Users table
         for unit in units:
             user_id = unit.get("user_id")
 
-            # Default values
             name = None
             mobile = None
             wings = None
 
             if user_id:
-                user_response = users_table.get_item(Key={"user_id": user_id})
-
+                user_response = users_table.get_item(
+                    Key={"user_id": user_id}
+                )
                 user_data = user_response.get("Item", {})
 
                 name = user_data.get("name")
                 mobile = user_data.get("mobile")
                 wings = user_data.get("wings")
 
-            # Step 3: Remove unwanted fields
             unit.pop("rent_amount", None)
             unit.pop("area_sqft", None)
             unit.pop("unit_type", None)
 
-            # Step 4: Add new 3 fields
             unit["name"] = name
             unit["mobile"] = mobile
             unit["wings"] = wings
@@ -60,7 +57,10 @@ def lambda_handler(event, context):
 
         return {
             'statusCode': 200,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
             'body': json.dumps({
                 'units': final_units,
                 'count': len(final_units)
@@ -68,9 +68,13 @@ def lambda_handler(event, context):
         }
 
     except Exception as e:
-        print(f"Error in user_units_get: {str(e)}")
+        print("ERROR:", str(e))
         return {
             'statusCode': 500,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
             'body': json.dumps({'message': 'Failed to get user units'})
         }
+
