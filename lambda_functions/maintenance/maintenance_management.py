@@ -1,12 +1,13 @@
 import json
 import boto3
 import uuid
+import os
 from datetime import datetime
 import traceback
 
 # Initialize DynamoDB
 dynamodb = boto3.resource('dynamodb')
-MAINTENANCE_TABLE = "MaintenanceRecords-dev"
+MAINTENANCE_TABLE = os.environ.get('TABLE_MAINTENANCE', 'MaintenanceRecords-dev')
 
 def extract_month_year(due_date):
     """Extract month and year from due_date string"""
@@ -29,59 +30,25 @@ def build_response(status_code, body):
         'statusCode': status_code,
         'headers': {
             'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token',
+            'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
         },
         'body': json.dumps(body, default=str)
     }
 
 def lambda_handler(event, context):
-    """Main Lambda handler"""
+    """Main Lambda handler for maintenance management"""
     print("=== MAINTENANCE API ===")
+    print(f"Event: {json.dumps(event, default=str)}")
     
     try:
         http_method = event.get('httpMethod', 'GET')
         path = event.get('path', '')
         print(f"Request: {http_method} {path}")
 
-        # ===== GET /maintenance =====
-        if http_method == 'GET' and path == '/maintenance':
-            query_params = event.get('queryStringParameters', {}) or {}
-            
-            if 'building_id' not in query_params:
-                return build_response(400, {
-                    'success': False,
-                    'message': 'Please provide building_id parameter'
-                })
-            
-            try:
-                # Get maintenance records for specific building
-                table = dynamodb.Table(MAINTENANCE_TABLE)
-                
-                response = table.query(
-                    IndexName='BuildingIndex',
-                    KeyConditionExpression=boto3.dynamodb.conditions.Key('building_id').eq(
-                        query_params['building_id']
-                    )
-                )
-                
-                items = response.get('Items', [])
-                print(f"Found {len(items)} maintenance records for building {query_params['building_id']}")
-                
-                return build_response(200, {
-                    'success': True,
-                    'message': f'Found {len(items)} maintenance records',
-                    'data': items
-                })
-                
-            except Exception as e:
-                print(f"Error querying maintenance: {str(e)}")
-                return build_response(500, {
-                    'success': False,
-                    'error': 'Failed to fetch maintenance records'
-                })
-
         # ===== POST /maintenance =====
-        elif http_method == 'POST' and path == '/maintenance':
+        if http_method == 'POST' and path == '/maintenance':
             try:
                 # Parse request body
                 body = json.loads(event['body']) if isinstance(event.get('body'), str) else event.get('body', {})
@@ -93,7 +60,8 @@ def lambda_handler(event, context):
                 
                 if missing_fields:
                     return build_response(400, {
-                        "error": "Missing required fields",
+                        "success": False,
+                        "message": "Missing required fields",
                         "missing_fields": missing_fields
                     })
                 
@@ -101,7 +69,8 @@ def lambda_handler(event, context):
                 wings = body.get("wings", [])
                 if not isinstance(wings, list):
                     return build_response(400, {
-                        "error": "wings must be a list"
+                        "success": False,
+                        "message": "wings must be a list"
                     })
                 
                 # Check if wings list is empty (means all wings)
@@ -120,8 +89,8 @@ def lambda_handler(event, context):
                     "building_id": body["building_id"],
                     "user_id": body["user_id"],
                     "due_date": due_date,
-                    "month": month,           # NEW: Added month field
-                    "year": year,            # NEW: Added year field
+                    "month": month,
+                    "year": year,
                     "wings": wings,
                     "is_all_wings": is_all_wings,
                     "description": body.get("description", ""),
@@ -145,19 +114,37 @@ def lambda_handler(event, context):
 
             except json.JSONDecodeError:
                 return build_response(400, {
-                    "error": "Invalid JSON in request body"
+                    "success": False,
+                    "message": "Invalid JSON in request body"
                 })
+            except Exception as e:
+                print(f"Error creating maintenance: {str(e)}")
+                traceback.print_exc()
+                return build_response(500, {
+                    "success": False,
+                    "message": "Failed to create maintenance record",
+                    "error": str(e)
+                })
+
+        # ===== OPTIONS /maintenance (for CORS) =====
+        elif http_method == 'OPTIONS' and path == '/maintenance':
+            return build_response(200, {
+                "success": True,
+                "message": "CORS preflight successful"
+            })
 
         # ===== Unknown endpoint =====
         else:
             return build_response(404, {
-                'error': 'Endpoint not found'
+                'success': False,
+                'message': 'Endpoint not found'
             })
 
     except Exception as e:
         print(f"Unexpected error: {str(e)}")
         traceback.print_exc()
         return build_response(500, {
-            'error': 'Internal server error', 
-            'details': str(e)
+            'success': False,
+            'message': 'Internal server error', 
+            'error': str(e)
         })

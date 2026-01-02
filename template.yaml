@@ -413,6 +413,7 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /delete_building
             Method: DELETE
+
   AssignUnitFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -545,12 +546,6 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref BuildingsTable
       Events:
-        MaintenanceGET:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ServerlessApi
-            Path: /maintenance
-            Method: GET
         MaintenancePOST:
           Type: Api
           Properties:
@@ -643,6 +638,7 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /get_maintenance
             Method: GET
+            
   GetBuildingMaintenanceFunction:
     Type: AWS::Serverless::Function
     Properties:
