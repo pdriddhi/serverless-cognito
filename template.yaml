@@ -446,9 +446,12 @@ Resources:
       Environment:
         Variables:
           TABLE_USERUNITS: !Ref UserUnitsTable
+          TABLE_BUILDINGS: !Ref BuildingsTable
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref UserUnitsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref BuildingsTable
       Events:
         GetMyUnitsAPI:
           Type: Api
@@ -456,6 +459,30 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /get_my_units
             Method: GET
+
+  GetUserUnitsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "get-user-units-${Environment}"
+      Handler: unit.user_units_get.lambda_handler
+      Environment:
+        Variables:
+          TABLE_USERUNITS: !Ref UserUnitsTable
+          USERS_TABLE: !Ref UsersTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserUnitsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        GetUserUnitsAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /user_units_get
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   UnitMaintenanceBillFunction:
     Type: AWS::Serverless::Function
@@ -473,7 +500,7 @@ Resources:
             Action:
               - cognito-idp:AdminGetUser
               - cognito-idp:ListUsers
-            Resource: !Sub arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}
+            Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"
       Events:
         UnitMaintenanceBillGET:
           Type: Api
