@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 import calendar
 from boto3.dynamodb.conditions import Key
-
+from auth_utils import require_auth
 
 dynamodb = boto3.resource('dynamodb')
 MAINTENANCE_TABLE = os.environ.get('TABLE_MAINTENANCE', 'MaintenanceRecords-dev')
@@ -50,14 +50,24 @@ def format_maintenance_bill(item):
         'user_id': item.get('user_id')
     }
 
+@require_auth
 def lambda_handler(event, context):
     """Get all maintenance bills for a building"""
     print("=== GET BUILDING MAINTENANCE API ===")
+    print(f"Authenticated user: {event.get('user', {})}")
 
     try:
+        user = event.get('user', {})
+        user_building_id = user.get('building_id')
+        user_type = user.get('user_type', 'resident')
+        
         query_params = event.get('queryStringParameters', {}) or {}
         building_id = query_params.get('building_id')
 
+        # If no building_id provided, use the user's building
+        if not building_id and user_building_id:
+            building_id = user_building_id
+        
         if not building_id:
             return {
                 'statusCode': 400,
@@ -67,7 +77,21 @@ def lambda_handler(event, context):
                 },
                 'body': json.dumps({
                     'success': False,
-                    'message': 'building_id parameter is required'
+                    'message': 'building_id parameter is required or user must be associated with a building'
+                })
+            }
+        
+        # Authorization: Users can only access their own building's maintenance
+        if user_building_id != building_id and user_type not in ['admin', 'manager']:
+            return {
+                'statusCode': 403,
+                'headers': {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                },
+                'body': json.dumps({
+                    'success': False,
+                    'message': 'You can only access maintenance bills from your own building'
                 })
             }
 
@@ -78,7 +102,6 @@ def lambda_handler(event, context):
         response = table.query(
             IndexName='BuildingIndex',
             KeyConditionExpression=Key('building_id').eq(building_id)
-
         )
 
         items = response.get('Items', [])
@@ -99,7 +122,6 @@ def lambda_handler(event, context):
             }
 
         maintenance_bills = [format_maintenance_bill(item) for item in items]
-
         maintenance_bills.sort(key=lambda x: x.get('due_date', ''), reverse=True)
 
         print(f"Found {len(maintenance_bills)} maintenance bills for building {building_id}")
