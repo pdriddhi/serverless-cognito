@@ -3,11 +3,10 @@ import boto3
 import os
 from datetime import datetime
 import calendar
-
+from auth_utils import require_auth
 
 dynamodb = boto3.resource('dynamodb')
 MAINTENANCE_TABLE = os.environ.get('TABLE_MAINTENANCE', 'MaintenanceRecords-dev')
-PAYMENT_TABLE = os.environ.get('TABLE_PAYMENT', 'PaymentRecords-dev')
 
 def get_month_name(month_number):
     """Convert month number to month name"""
@@ -16,11 +15,17 @@ def get_month_name(month_number):
     except (ValueError, IndexError):
         return ""
 
+@require_auth
 def lambda_handler(event, context):
     """Get maintenance details by maintenance_id"""
     print("=== GET MAINTENANCE DETAILS API ===")
+    print(f"Authenticated user: {event.get('user', {})}")
 
     try:
+        user = event.get('user', {})
+        user_building_id = user.get('building_id')
+        user_type = user.get('user_type', 'resident')
+        
         query_params = event.get('queryStringParameters', {}) or {}
         maintenance_id = query_params.get('maintenance_id')
 
@@ -58,30 +63,25 @@ def lambda_handler(event, context):
             }
 
         item = response['Item']
-        payment_table = dynamodb.Table(PAYMENT_TABLE)
-
-        payment_response = payment_table.scan(
-            FilterExpression=Attr('maintenance_id').eq(maintenance_id)
-        )
-
-        payments = payment_response.get('Items', [])
-
-        total_amount = 0
-        paid_amount = 0
-        unpaid_amount = 0
-
-        for payment in payments:
-            amount = float(payment.get('amount', 0))
-            total_amount += amount
-
-            if payment.get('payment_status') == 'PAID':
-                paid_amount += amount
-            else:
-                unpaid_amount += amount
+        building_id = item.get('building_id')
+        
+        # Authorization: Users can only access maintenance from their own building
+        if user_building_id != building_id and user_type not in ['admin', 'manager']:
+            return {
+                'statusCode': 403,
+                'headers': {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                },
+                'body': json.dumps({
+                    'success': False,
+                    'message': 'You are not authorized to access this maintenance record'
+                })
+            }
 
         maintenance_data = {
             'maintenance_id': item.get('maintenance_id'),
-            'building_id': item.get('building_id'),
+            'building_id': building_id,
             'name': item.get('name', f"Maintenance-{maintenance_id}"),
             'description': item.get('description', ''),
             'due_date': item.get('due_date'),
@@ -93,9 +93,6 @@ def lambda_handler(event, context):
             'user_id': item.get('user_id'),
             'status': item.get('status', 'pending'),
             'created_at': item.get('created_at')
-            'paid_amount': paid_amount,
-            'unpaid_amount': unpaid_amount,
-            'total_amount': total_amount
         }
 
         if 'month' in item and isinstance(item['month'], (int, float)):

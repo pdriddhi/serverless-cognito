@@ -1,8 +1,15 @@
 import json
 import boto3
+import os
 from decimal import Decimal
 
 dynamodb = boto3.resource('dynamodb')
+
+TABLE_USERUNITS = os.environ.get('TABLE_USERUNITS', 'UserUnits-dev')
+USERS_TABLE = os.environ.get('USERS_TABLE', 'Users-dev')
+
+user_units_table = dynamodb.Table(TABLE_USERUNITS)
+users_table = dynamodb.Table(USERS_TABLE)
 
 def convert_decimal(obj):
     if isinstance(obj, list):
@@ -16,17 +23,23 @@ def convert_decimal(obj):
 def lambda_handler(event, context):
     try:
         print("User Units Get function started")
+        print(f"Using tables: {TABLE_USERUNITS}, {USERS_TABLE}")   
 
-        user_units_table = dynamodb.Table('UserUnits-prod')
-        users_table = dynamodb.Table('Users-prod')   # ← New Users table
-
-        # Step 1: Fetch all units
+        # Step 1: Fetch all units with pagination support
+        units = []
         response = user_units_table.scan()
-        units = response.get('Items', [])
+        units.extend(response.get('Items', []))
+        
+        # Handle pagination
+        while 'LastEvaluatedKey' in response:
+            response = user_units_table.scan(
+                ExclusiveStartKey=response['LastEvaluatedKey']
+            )
+            units.extend(response.get('Items', []))
 
         final_units = []
 
-        # Step 2: Fetch name, mobile, wings from Users table
+       
         for unit in units:
             user_id = unit.get("user_id")
 
@@ -44,12 +57,12 @@ def lambda_handler(event, context):
                 mobile = user_data.get("mobile")
                 wings = user_data.get("wings")
 
-            # Step 3: Remove unwanted fields
+            
             unit.pop("rent_amount", None)
             unit.pop("area_sqft", None)
             unit.pop("unit_type", None)
 
-            # Step 4: Add new 3 fields
+            
             unit["name"] = name
             unit["mobile"] = mobile
             unit["wings"] = wings
@@ -69,8 +82,13 @@ def lambda_handler(event, context):
 
     except Exception as e:
         print(f"Error in user_units_get: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {
             'statusCode': 500,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Failed to get user units'})
+            'body': json.dumps({
+                'message': 'Failed to get user units',
+                'error': str(e)
+            })
         }
