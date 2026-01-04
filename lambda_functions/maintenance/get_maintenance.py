@@ -1,132 +1,116 @@
 import json
 import boto3
 import os
+import traceback
 from datetime import datetime
-import calendar
-from auth_utils import require_auth
 
+# Initialize DynamoDB
 dynamodb = boto3.resource('dynamodb')
 MAINTENANCE_TABLE = os.environ.get('TABLE_MAINTENANCE', 'MaintenanceRecords-dev')
 
-def get_month_name(month_number):
+def get_month_name(month_num):
     """Convert month number to month name"""
     try:
-        return calendar.month_name[int(month_number)]
-    except (ValueError, IndexError):
+        month_num = int(month_num)
+        return datetime(1900, month_num, 1).strftime('%B')
+    except Exception:
         return ""
 
-@require_auth
+def build_response(status_code, body):
+    """Helper to build HTTP response"""
+    return {
+        'statusCode': status_code,
+        'headers': {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token',
+            'Access-Control-Allow-Methods': 'GET,OPTIONS'
+        },
+        'body': json.dumps(body, default=str)
+    }
+
 def lambda_handler(event, context):
-    """Get maintenance details by maintenance_id"""
-    print("=== GET MAINTENANCE DETAILS API ===")
-    print(f"Authenticated user: {event.get('user', {})}")
+    """Main Lambda handler for getting a maintenance record by maintenance_id"""
+    print("=== MAINTENANCE GET API ===")
+    print(f"Event: {json.dumps(event, default=str)}")
 
     try:
-        user = event.get('user', {})
-        user_building_id = user.get('building_id')
-        user_type = user.get('user_type', 'resident')
-        
-        query_params = event.get('queryStringParameters', {}) or {}
-        maintenance_id = query_params.get('maintenance_id')
+        http_method = event.get('httpMethod', 'GET')
+        path = event.get('path', '')
 
-        if not maintenance_id:
-            return {
-                'statusCode': 400,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*'
-                },
-                'body': json.dumps({
-                    'success': False,
-                    'message': 'maintenance_id parameter is required'
+        # ===== GET /get_maintenance =====
+        if http_method == 'GET' and path == '/get_maintenance':
+            # Get maintenance_id from query string
+            query_params = event.get('queryStringParameters') or {}
+            maintenance_id = query_params.get('maintenance_id')
+
+            if not maintenance_id:
+                return build_response(400, {
+                    "success": False,
+                    "message": "Missing required query parameter: maintenance_id"
                 })
-            }
 
-        print(f"Fetching maintenance details for ID: {maintenance_id}")
+            try:
+                table = dynamodb.Table(MAINTENANCE_TABLE)
+                response = table.get_item(Key={"maintenance_id": maintenance_id})
+                item = response.get("Item")
 
-        table = dynamodb.Table(MAINTENANCE_TABLE)
-        response = table.get_item(
-            Key={'maintenance_id': maintenance_id}
-        )
+                if not item:
+                    return build_response(404, {
+                        "success": False,
+                        "message": f"Maintenance record with ID {maintenance_id} not found"
+                    })
 
-        if 'Item' not in response:
-            return {
-                'statusCode': 404,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*'
-                },
-                'body': json.dumps({
-                    'success': False,
-                    'message': 'Maintenance record not found'
+                # Build response
+                data = {
+                    'maintenance_id': item.get('maintenance_id'),
+                    'building_id': item.get('building_id'),
+                    'name': item.get('name', f"Maintenance-{maintenance_id}"),
+                    'description': item.get('description', ''),
+                    'due_date': item.get('due_date'),
+                    'month': get_month_name(item.get('month', '')),
+                    'year': item.get('year'),
+                    'bill_items': item.get('bill_items', []),
+                    'wings': item.get('wings', []),
+                    'is_all_wings': item.get('is_all_wings', False),
+                    'user_id': item.get('user_id'),
+                    'status': item.get('status', 'pending'),
+                    'created_at': item.get('created_at')
+                }
+
+                return build_response(200, {
+                    "success": True,
+                    "data": data
                 })
-            }
 
-        item = response['Item']
-        building_id = item.get('building_id')
-        
-        # Authorization: Users can only access maintenance from their own building
-        if user_building_id != building_id and user_type not in ['admin', 'manager']:
-            return {
-                'statusCode': 403,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*'
-                },
-                'body': json.dumps({
-                    'success': False,
-                    'message': 'You are not authorized to access this maintenance record'
+            except Exception as e:
+                print(f"Error fetching maintenance: {str(e)}")
+                traceback.print_exc()
+                return build_response(500, {
+                    "success": False,
+                    "message": "Failed to fetch maintenance record",
+                    "error": str(e)
                 })
-            }
 
-        maintenance_data = {
-            'maintenance_id': item.get('maintenance_id'),
-            'building_id': building_id,
-            'name': item.get('name', f"Maintenance-{maintenance_id}"),
-            'description': item.get('description', ''),
-            'due_date': item.get('due_date'),
-            'month': get_month_name(item.get('month', '')),
-            'year': item.get('year'),
-            'bill_items': item.get('bill_items', []),
-            'wings': item.get('wings', []),
-            'is_all_wings': item.get('is_all_wings', False),
-            'user_id': item.get('user_id'),
-            'status': item.get('status', 'pending'),
-            'created_at': item.get('created_at')
-        }
+        # ===== OPTIONS /get_maintenance (for CORS) =====
+        elif http_method == 'OPTIONS' and path == '/get_maintenance':
+            return build_response(200, {
+                "success": True,
+                "message": "CORS preflight successful"
+            })
 
-        if 'month' in item and isinstance(item['month'], (int, float)):
-            maintenance_data['month_number'] = item['month']
-
-        print(f"Found maintenance record: {maintenance_data.get('name')}")
-
-        return {
-            'statusCode': 200,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
-            'body': json.dumps({
-                'success': True,
-                'message': 'Maintenance bill details retrieved successfully',
-                'maintenance': maintenance_data
-            }, default=str)
-        }
+        # ===== Unknown endpoint =====
+        else:
+            return build_response(404, {
+                'success': False,
+                'message': 'Endpoint not found'
+            })
 
     except Exception as e:
-        print(f"Error fetching maintenance details: {str(e)}")
-        import traceback
+        print(f"Unexpected error: {str(e)}")
         traceback.print_exc()
-
-        return {
-            'statusCode': 500,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
-            'body': json.dumps({
-                'success': False,
-                'message': 'Failed to retrieve maintenance details',
-                'error': str(e)
-            })
-        }
+        return build_response(500, {
+            'success': False,
+            'message': 'Internal server error', 
+            'error': str(e)
+        })
