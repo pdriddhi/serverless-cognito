@@ -33,6 +33,7 @@ def lambda_handler(event, context):
         user_id = event['pathParameters']['user_id']
         body = json.loads(event['body'])
         
+        
         existing_member = table.get_item(Key={'user_id': user_id})
         if 'Item' not in existing_member:
             return {
@@ -58,13 +59,6 @@ def lambda_handler(event, context):
                     })
                 }
 
-        update_expression = "SET updated_at = :updated_at"
-        expression_attribute_values = {
-            ':updated_at': datetime.utcnow().isoformat()
-        }
-        
-        allowed_fields = ['name', 'mobile_no', 'wings', 'floor', 'unit_number', 'building_id']
-
         if 'user_id' in body and body['user_id'] != user_id:
             return {
                 'statusCode': 400,
@@ -75,17 +69,42 @@ def lambda_handler(event, context):
                 'body': json.dumps({'error': 'Cannot change user_id. Create a new member instead.'})
             }
 
+        update_expression = "SET updated_at = :updated_at"
+        expression_attribute_values = {
+            ':updated_at': datetime.utcnow().isoformat()
+        }
+        expression_attribute_names = {}
+        
+        allowed_fields = ['name', 'mobile_no', 'wings', 'floor', 'unit_number', 'building_id']
+        
+        field_counter = 0
         for field in allowed_fields:
             if field in body:
-                update_expression += f", {field} = :{field}"
+                if field in ['name', 'floor']:
+                    placeholder = f'#field{field_counter}'
+                    expression_attribute_names[placeholder] = field
+                    update_expression += f", {placeholder} = :{field}"
+                else:
+                    update_expression += f", {field} = :{field}"
+                
                 expression_attribute_values[f':{field}'] = body[field]
+                field_counter += 1
         
-        response = table.update_item(
-            Key={'user_id': user_id},
-            UpdateExpression=update_expression,
-            ExpressionAttributeValues=expression_attribute_values,
-            ReturnValues='ALL_NEW'
-        )
+        print(f"Update Expression: {update_expression}")
+        print(f"Expression Attribute Names: {expression_attribute_names}")
+        print(f"Expression Attribute Values: {expression_attribute_values}")
+        
+        update_params = {
+            'Key': {'user_id': user_id},
+            'UpdateExpression': update_expression,
+            'ExpressionAttributeValues': expression_attribute_values,
+            'ReturnValues': 'ALL_NEW'
+        }
+        
+        if expression_attribute_names:
+            update_params['ExpressionAttributeNames'] = expression_attribute_names
+        
+        response = table.update_item(**update_params)
         
         return {
             'statusCode': 200,
@@ -109,6 +128,9 @@ def lambda_handler(event, context):
             'body': json.dumps({'error': 'Invalid JSON format'})
         }
     except Exception as e:
+        print(f"Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {
             'statusCode': 500,
             'headers': {

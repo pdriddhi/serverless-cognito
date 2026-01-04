@@ -187,6 +187,8 @@ Resources:
 
   UnitMaintenanceTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "UnitMaintenanceBills-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -703,8 +705,6 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /members
             Method: POST
-            Auth:
-              Authorizer: CognitoAuthorizer
 
   GetMemberFunction:
     Type: AWS::Serverless::Function
@@ -724,16 +724,13 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /members
             Method: GET
-            Auth:
-              Authorizer: CognitoAuthorizer
+            
         GetMemberByIdAPI:
           Type: Api
           Properties:
             RestApiId: !Ref ServerlessApi
             Path: /members/{user_id}
             Method: GET
-            Auth:
-              Authorizer: CognitoAuthorizer
 
   UpdateMemberFunction:
     Type: AWS::Serverless::Function
@@ -756,8 +753,7 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /members/{user_id}
             Method: PATCH
-            Auth:
-              Authorizer: CognitoAuthorizer
+          
 
   DeleteMemberFunction:
     Type: AWS::Serverless::Function
@@ -777,8 +773,7 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /members/{user_id}
             Method: DELETE
-            Auth:
-              Authorizer: CognitoAuthorizer        
+                  
 
 
 Outputs:
