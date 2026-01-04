@@ -1,159 +1,122 @@
 import json
-import boto3
 import os
-from datetime import datetime
-import calendar
+import boto3
+import traceback
 from boto3.dynamodb.conditions import Key
-from auth_utils import require_auth
+from calendar import month_name
 
+# Initialize DynamoDB
 dynamodb = boto3.resource('dynamodb')
 MAINTENANCE_TABLE = os.environ.get('TABLE_MAINTENANCE', 'MaintenanceRecords-dev')
 
 def get_month_name(month_number):
-    """Convert month number to month name"""
+    """Convert month number to month name, e.g., 1 -> January"""
     try:
-        return calendar.month_name[int(month_number)]
-    except (ValueError, IndexError):
-        return ""
+        month_number = int(month_number)
+        if 1 <= month_number <= 12:
+            return month_name[month_number]
+    except:
+        pass
+    return ""
 
 def generate_maintenance_name(item):
-    """Generate maintenance name from month and year"""
-    month = get_month_name(item.get('month', ''))
-    year = item.get('year', '')
+    """Generate maintenance name if not present"""
+    return f"Maintenance - {item.get('month', '')}/{item.get('year', '')}"
 
-    if month and year:
-        return f"{month}-{year}-Maintenance"
-    elif 'due_date' in item:
-        try:
-            due_date = datetime.fromisoformat(item['due_date'].replace('Z', '+00:00'))
-            return due_date.strftime("%B-%Y-Maintenance")
-        except:
-            return f"Maintenance-{item.get('maintenance_id', '')}"
-    else:
-        return f"Maintenance-{item.get('maintenance_id', '')}"
-
-def format_maintenance_bill(item):
-    """Format maintenance bill as per required response"""
+def build_response(status_code, body):
+    """Helper to build HTTP response"""
     return {
-        'maintenance_id': item.get('maintenance_id'),
-        'building_id': item.get('building_id'),
-        'name': item.get('name') or generate_maintenance_name(item),
-        'description': item.get('description', ''),
-        'due_date': item.get('due_date'),
-        'month': get_month_name(item.get('month', '')),
-        'year': item.get('year'),
-        'bill_items': item.get('bill_items', []),
-        'created_at': item.get('created_at'),
-        'wings': item.get('wings', []),
-        'is_all_wings': item.get('is_all_wings', False),
-        'status': item.get('status', 'pending'),
-        'user_id': item.get('user_id')
+        'statusCode': status_code,
+        'headers': {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token',
+            'Access-Control-Allow-Methods': 'GET,OPTIONS'
+        },
+        'body': json.dumps(body, default=str)
     }
 
-@require_auth
 def lambda_handler(event, context):
-    """Get all maintenance bills for a building"""
+    """GET /get_building_maintenance Lambda handler"""
     print("=== GET BUILDING MAINTENANCE API ===")
-    print(f"Authenticated user: {event.get('user', {})}")
+    print(f"Event: {json.dumps(event, default=str)}")
 
     try:
-        user = event.get('user', {})
-        user_building_id = user.get('building_id')
-        user_type = user.get('user_type', 'resident')
-        
-        query_params = event.get('queryStringParameters', {}) or {}
-        building_id = query_params.get('building_id')
+        http_method = event.get('httpMethod', 'GET')
+        path = event.get('path', '')
 
-        # If no building_id provided, use the user's building
-        if not building_id and user_building_id:
-            building_id = user_building_id
-        
-        if not building_id:
-            return {
-                'statusCode': 400,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*'
-                },
-                'body': json.dumps({
-                    'success': False,
-                    'message': 'building_id parameter is required or user must be associated with a building'
+        if http_method == 'GET':
+            query_params = event.get('queryStringParameters', {}) or {}
+            building_id = query_params.get('building_id')
+
+            if not building_id:
+                return build_response(400, {
+                    "success": False,
+                    "message": "building_id is required"
                 })
-            }
-        
-        # Authorization: Users can only access their own building's maintenance
-        if user_building_id != building_id and user_type not in ['admin', 'manager']:
-            return {
-                'statusCode': 403,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*'
-                },
-                'body': json.dumps({
-                    'success': False,
-                    'message': 'You can only access maintenance bills from your own building'
+
+            try:
+                table = dynamodb.Table(MAINTENANCE_TABLE)
+
+                response = table.query(
+                    IndexName='BuildingIndex',
+                    KeyConditionExpression=Key('building_id').eq(building_id)
+                )
+
+                items = response.get('Items', [])
+
+                # Prepare response data
+                data = []
+                for item in items:
+                    data.append({
+                        'maintenance_id': item.get('maintenance_id'),
+                        'building_id': item.get('building_id'),
+                        'name': item.get('name') or generate_maintenance_name(item),
+                        'description': item.get('description', ''),
+                        'due_date': item.get('due_date'),
+                        'month': get_month_name(item.get('month', '')),
+                        'year': item.get('year'),
+                        'bill_items': item.get('bill_items', []),
+                        'created_at': item.get('created_at'),
+                        'wings': item.get('wings', []),
+                        'is_all_wings': item.get('is_all_wings', False),
+                        'status': item.get('status', 'pending'),
+                        'user_id': item.get('user_id')
+                    })
+
+                return build_response(200, {
+                    "success": True,
+                    "building_id": building_id,
+                    "total_records": len(data),
+                    "data": data
                 })
-            }
 
-        print(f"Fetching maintenance bills for building: {building_id}")
-
-        table = dynamodb.Table(MAINTENANCE_TABLE)
-
-        response = table.query(
-            IndexName='BuildingIndex',
-            KeyConditionExpression=Key('building_id').eq(building_id)
-        )
-
-        items = response.get('Items', [])
-
-        if not items:
-            return {
-                'statusCode': 200,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*'
-                },
-                'body': json.dumps({
-                    'success': True,
-                    'message': 'No maintenance bills found for this building',
-                    'maintenance_bills': [],
-                    'count': 0
+            except Exception as e:
+                print(f"Error fetching maintenance records: {str(e)}")
+                traceback.print_exc()
+                return build_response(500, {
+                    "success": False,
+                    "message": "Failed to fetch maintenance records",
+                    "error": str(e)
                 })
-            }
 
-        maintenance_bills = [format_maintenance_bill(item) for item in items]
-        maintenance_bills.sort(key=lambda x: x.get('due_date', ''), reverse=True)
+        elif http_method == 'OPTIONS' and path == '/get_building_maintenance':
+            return build_response(200, {
+                "success": True,
+                "message": "CORS preflight successful"
+            })
 
-        print(f"Found {len(maintenance_bills)} maintenance bills for building {building_id}")
-
-        return {
-            'statusCode': 200,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
-            'body': json.dumps({
-                'success': True,
-                'message': f'Found {len(maintenance_bills)} maintenance bills',
-                'maintenance_bills': maintenance_bills,
-                'count': len(maintenance_bills)
-            }, default=str)
-        }
+        else:
+            return build_response(404, {
+                "success": False,
+                "message": "Endpoint not found"
+            })
 
     except Exception as e:
-        print(f"Error fetching building maintenance: {str(e)}")
-        import traceback
+        print(f"Unexpected error: {str(e)}")
         traceback.print_exc()
-
-        return {
-            'statusCode': 500,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
-            'body': json.dumps({
-                'success': False,
-                'message': 'Failed to retrieve maintenance bills',
-                'error': str(e)
-            })
-        }
+        return build_response(500, {
+            "success": False,
+            "message": "Internal server error",
+            "error": str(e)
+        })
