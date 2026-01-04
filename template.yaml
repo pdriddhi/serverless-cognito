@@ -482,9 +482,7 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /user_units_get
             Method: GET
-            Auth:
-              Authorizer: CognitoAuthorizer
-
+            
   UnitMaintenanceBillFunction:
     Type: AWS::Serverless::Function
     Properties:
