@@ -4,15 +4,17 @@ import uuid
 import os
 from datetime import datetime
 import traceback
+from boto3.dynamodb.conditions import Key
 
 # Initialize DynamoDB
 dynamodb = boto3.resource('dynamodb')
 MAINTENANCE_TABLE = os.environ.get('TABLE_MAINTENANCE', 'MaintenanceRecords-dev')
+USERS_TABLE = os.environ.get('TABLE_USERS', 'Users-dev')
+BUILDINGS_TABLE = os.environ.get('TABLE_BUILDINGS', 'Buildings-dev')
 
 def extract_month_year(due_date):
     """Extract month and year from due_date string"""
     try:
-        # Handle different date formats
         date_str = due_date.replace('Z', '+00:00')
         if 'T' in date_str:
             date_obj = datetime.fromisoformat(date_str)
@@ -20,7 +22,6 @@ def extract_month_year(due_date):
             date_obj = datetime.strptime(date_str.split('T')[0], '%Y-%m-%d')
         return date_obj.month, date_obj.year
     except Exception:
-        # Fallback to current month/year
         now = datetime.utcnow()
         return now.month, now.year
 
@@ -32,20 +33,19 @@ def build_response(status_code, body):
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token',
-            'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+            'Access-Control-Allow-Methods': 'POST,OPTIONS'
         },
         'body': json.dumps(body, default=str)
     }
 
 def lambda_handler(event, context):
-    """Main Lambda handler for maintenance management"""
-    print("=== MAINTENANCE API ===")
+    """Main Lambda handler for creating maintenance records"""
+    print("=== MAINTENANCE POST API ===")
     print(f"Event: {json.dumps(event, default=str)}")
-    
+
     try:
-        http_method = event.get('httpMethod', 'GET')
+        http_method = event.get('httpMethod', 'POST')
         path = event.get('path', '')
-        print(f"Request: {http_method} {path}")
 
         # ===== POST /maintenance =====
         if http_method == 'POST' and path == '/maintenance':
@@ -64,13 +64,31 @@ def lambda_handler(event, context):
                         "message": "Missing required fields",
                         "missing_fields": missing_fields
                     })
-                
+
                 # Validate wings
                 wings = body.get("wings", [])
                 if not isinstance(wings, list):
                     return build_response(400, {
                         "success": False,
                         "message": "wings must be a list"
+                    })
+                
+                # ===== Validate user_id =====
+                users_table = dynamodb.Table(USERS_TABLE)
+                user_response = users_table.get_item(Key={"user_id": body["user_id"]})
+                if "Item" not in user_response:
+                    return build_response(403, {
+                        "success": False,
+                        "message": f"user_id {body['user_id']} does not exist or is invalid"
+                    })
+
+                # ===== Validate building_id =====
+                buildings_table = dynamodb.Table(BUILDINGS_TABLE)
+                building_response = buildings_table.get_item(Key={"building_id": body["building_id"]})
+                if "Item" not in building_response:
+                    return build_response(403, {
+                        "success": False,
+                        "message": f"building_id {body['building_id']} does not exist or is invalid"
                     })
                 
                 # Check if wings list is empty (means all wings)

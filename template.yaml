@@ -538,6 +538,7 @@ Resources:
           TABLE_MAINTENANCE: !Ref MaintenanceTable
           TABLE_PAYMENT: !Ref PaymentTable
           TABLE_BUILDINGS: !Ref BuildingsTable
+          TABLE_USERS: !Ref UsersTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref MaintenanceTable
@@ -545,6 +546,8 @@ Resources:
             TableName: !Ref PaymentTable
         - DynamoDBCrudPolicy:
             TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable    
       Events:
         MaintenancePOST:
           Type: Api
@@ -599,6 +602,7 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /get_user_building
             Method: GET
+            
   GetUserBuildingsFunction:
    Type: AWS::Serverless::Function
    Properties:
@@ -617,8 +621,6 @@ Resources:
           RestApiId: !Ref ServerlessApi
           Path: /get_user_buildings
           Method: GET
-          Auth:
-            Authorizer: CognitoAuthorizer
 
   GetMaintenanceFunction:
     Type: AWS::Serverless::Function
@@ -657,6 +659,8 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /get_building_maintenance
             Method: GET
+            
+
 
   DeleteMaintenanceFunction:
    Type: AWS::Serverless::Function
