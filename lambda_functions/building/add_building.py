@@ -20,7 +20,7 @@ def validate_user(user_id):
     """
     if not USERS_TABLE or not users_table:
         print("Warning: USERS_TABLE not configured, skipping user validation")
-        return True  # Allow if table not configured (for backward compatibility)
+        return True  
     
     try:
         response = users_table.get_item(Key={'user_id': user_id})
@@ -33,12 +33,62 @@ def validate_user(user_id):
         traceback.print_exc()
         return False
 
+def generate_building_code(building_name, building_id):
+    """
+    Generate unique building code from building name and ID
+    Format: First 3 letters of building name + Last 4 chars of building ID
+    Example: SUNRISE APARTMENTS + BLD-ABC123DEF -> SUN-DEF
+    """
+    words = [word for word in building_name.split() if word]
+    
+    if words:
+        prefix = ''.join([word[0].upper() for word in words[:3]])
+        if len(prefix) < 2:
+            prefix = 'BLD'[:3]
+    else:
+        prefix = 'BLD'
+    
+    if len(prefix) > 3:
+        prefix = prefix[:3]
+    elif len(prefix) < 3:
+        prefix = prefix.ljust(3, 'X')
+    
+    if building_id and '-' in building_id:
+        suffix_part = building_id.split('-')[-1]
+        suffix = suffix_part[-3:].upper() if len(suffix_part) >= 3 else '001'
+    else:
+        suffix = uuid.uuid4().hex[:3].upper()
+    
+    building_code = f"{prefix}{suffix}"
+    
+    print(f"Generated building code: {building_code} from name: {building_name}, id: {building_id}")
+    return building_code
+
+def check_building_code_unique(building_code):
+    """
+    Check if building_code already exists in the database
+    Returns True if unique, False if duplicate
+    """
+    try:
+        response = buildings_table.scan(
+            FilterExpression='building_code = :code',
+            ExpressionAttributeValues={':code': building_code}
+        )
+        
+        if response.get('Items') and len(response['Items']) > 0:
+            print(f"Building code {building_code} already exists")
+            return False
+        
+        return True
+    except Exception as e:
+        print(f"Error checking building code uniqueness: {e}")
+        return True
+
 def lambda_handler(event, context):
     try:
         print("=== ADD BUILDING ===")
         print(f"Event: {json.dumps(event, default=str)}")
 
-       
         body = {}
         if event.get('body'):
             try:
@@ -58,13 +108,11 @@ def lambda_handler(event, context):
 
         print(f"Request body: {body}")
 
-        
         building_name = body.get('name')
         wings = body.get('wings', [])
         wing_details = body.get('wing_details', {})
-        user_id = body.get('user_id')  
+        user_id = body.get('user_id')
 
-        
         if not building_name or not wings or not wing_details or not user_id:
             return {
                 'statusCode': 400,
@@ -78,7 +126,6 @@ def lambda_handler(event, context):
                 })
             }
 
-       
         building_name = building_name.strip()
         if len(building_name) < 2:
             return {
@@ -106,7 +153,6 @@ def lambda_handler(event, context):
                 })
             }
 
-        # Validate that user exists in DynamoDB Users table
         if not validate_user(user_id):
             return {
                 'statusCode': 404,
@@ -121,7 +167,6 @@ def lambda_handler(event, context):
                 })
             }
 
-       
         if not isinstance(wings, list) or len(wings) == 0:
             return {
                 'statusCode': 400,
@@ -149,14 +194,34 @@ def lambda_handler(event, context):
                     })
                 }
 
-        
         building_id = f"BLD-{uuid.uuid4().hex[:8].upper()}"
         current_time = datetime.utcnow().isoformat()
+
+        building_code = generate_building_code(building_name, building_id)
+        
+        attempts = 0
+        max_attempts = 3
+        while not check_building_code_unique(building_code) and attempts < max_attempts:
+            attempts += 1
+            print(f"Building code {building_code} exists, generating new one (attempt {attempts})")
+            
+            if building_id and '-' in building_id:
+                suffix_part = building_id.split('-')[-1]
+                new_suffix = (suffix_part[-3:].upper() + str(attempts))[:3]
+            else:
+                new_suffix = uuid.uuid4().hex[:3].upper()
+            
+            prefix = building_code[:3]
+            building_code = f"{prefix}{new_suffix}"
+        
+        if attempts >= max_attempts:
+            timestamp = str(int(datetime.utcnow().timestamp()))[-3:]
+            building_code = f"BLD{timestamp}"
+            print(f"Using fallback building code: {building_code}")
 
         total_units_of_building = 0
         processed_wings = {}
 
-        # Process each wing
         for wing in wings:
             details = wing_details.get(wing)
 
@@ -189,12 +254,10 @@ def lambda_handler(event, context):
                     })
                 }
 
-            
             try:
                 total_floors = int(total_floors)
                 units_per_floor = int(units_per_floor)
 
-                
                 if total_floors <= 0 or total_floors > 100:
                     return {
                         'statusCode': 400,
@@ -243,11 +306,11 @@ def lambda_handler(event, context):
                 'total_units': wing_total_units
             }
 
-        
         building_item = {
             'building_id': building_id,
             'building_name': building_name,
-            'user_id': user_id,  
+            'building_code': building_code,  
+            'user_id': user_id,
             'wings': wings,
             'wing_details': processed_wings,
             'total_wings': len(wings),
@@ -257,10 +320,9 @@ def lambda_handler(event, context):
             'updated_at': current_time
         }
 
-        
         try:
             buildings_table.put_item(Item=building_item)
-            print(f"Building created: {building_id} by user: {user_id}")
+            print(f"Building created: {building_id} with code: {building_code} by user: {user_id}")
             
         except Exception as e:
             print(f"Error saving building: {str(e)}")
@@ -282,7 +344,8 @@ def lambda_handler(event, context):
             'user_id': user_id,
             'name': building_name,
             'wings': wings,
-            'wing_details': wing_details  
+            'wing_details': wing_details,
+            'building_code': building_code  
         }
 
         return {
@@ -294,9 +357,10 @@ def lambda_handler(event, context):
             'body': json.dumps({
                 'message': 'Building created successfully',
                 'success': True,
-                'data': response_data,  # Main data in 'data' field
-                'building_info': {      # Additional info
+                'data': response_data,
+                'building_info': {
                     'building_id': building_id,
+                    'building_code': building_code,  
                     'total_wings': len(wings),
                     'total_units_of_building': total_units_of_building,
                     'status': 'active',

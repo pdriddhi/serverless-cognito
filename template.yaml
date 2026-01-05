@@ -790,30 +790,6 @@ Resources:
             Auth:
               Authorizer: CognitoAuthorizer        
 
-  SearchBuildingFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: !Sub "search-building-by-code-${Environment}"
-      Handler: building.search_building_by_code.lambda_handler
-      Environment:
-        Variables:
-          TABLE_BUILDINGS: !Ref BuildingsTable
-          USERS_TABLE: !Ref UsersTable
-      Policies:
-        - DynamoDBReadPolicy:
-            TableName: !Ref BuildingsTable
-        - DynamoDBReadPolicy:
-            TableName: !Ref UsersTable
-      Events:
-        SearchBuildingAPI:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ServerlessApi
-            Path: /search_building
-            Method: GET
-
-
-
 Outputs:
   ApiUrl:
     Description: "API Gateway Invoke URL"
