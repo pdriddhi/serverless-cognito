@@ -491,6 +491,34 @@ Resources:
             Path: /user_units_get
             Method: GET
             
+  CheckUnitAvailabilityFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "check-unit-availability-${Environment}"
+      Handler: unit.check_unit_availability.lambda_handler
+      Environment:
+        Variables:
+          TABLE_USERUNITS: !Ref UserUnitsTable
+          MEMBERS_TABLE: !Ref MembersTable
+          TABLE_BUILDINGS: !Ref BuildingsTable
+          USERS_TABLE: !Ref UsersTable 
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserUnitsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref MembersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable 
+      Events:
+        CheckUnitAvailabilityAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /check_unit_availability
+            Method: GET          
+
   UnitMaintenanceBillFunction:
     Type: AWS::Serverless::Function
     Properties:
