@@ -31,6 +31,38 @@ Parameters:
 
 Resources:
 
+  BuildingMembersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "BuildingMembers-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: building_id
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: role
+          AttributeType: S
+      KeySchema:
+        - AttributeName: building_id
+          KeyType: HASH
+        - AttributeName: user_id
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: UserIdIndex
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: BuildingRoleIndex
+          KeySchema:
+            - AttributeName: building_id
+              KeyType: HASH
+            - AttributeName: role
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
 
   ApartmentsTable:
     Type: AWS::DynamoDB::Table
