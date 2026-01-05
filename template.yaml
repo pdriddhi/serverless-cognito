@@ -54,6 +54,8 @@ Resources:
           AttributeType: S
         - AttributeName: user_id
           AttributeType: S
+        - AttributeName: building_code
+          AttributeType: S
       KeySchema:
         - AttributeName: building_id
           KeyType: HASH
@@ -64,6 +66,12 @@ Resources:
               KeyType: HASH
           Projection:
              ProjectionType: ALL
+        - IndexName: BuildingCodeIndex
+          KeySchema: 
+             - AttributeName: building_code
+               KeyType: HASH 
+          Projection:
+            ProjectionType: ALL         
 
   LoginUsersTable:
     Type: AWS::DynamoDB::Table
@@ -187,8 +195,6 @@ Resources:
 
   UnitMaintenanceTable:
     Type: AWS::DynamoDB::Table
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "UnitMaintenanceBills-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -565,24 +571,31 @@ Resources:
         Variables:
           TABLE_MAINTENANCE: !Ref MaintenanceTable
           TABLE_PAYMENT: !Ref PaymentTable
+          USERS_TABLE: !Ref UsersTable
+          MEMBERS_TABLE: !Ref MembersTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref MaintenanceTable
         - DynamoDBCrudPolicy:
             TableName: !Ref PaymentTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref MembersTable    
       Events:
-        PaymentCashPOST:
+        PaymentProcessPOST:
           Type: Api
           Properties:
             RestApiId: !Ref ServerlessApi
-            Path: /payment/cash
+            Path: /payment/process
             Method: POST
-        PaymentOnlinePOST:
+
+        PaymentGET:
           Type: Api
           Properties:
             RestApiId: !Ref ServerlessApi
-            Path: /payment/online
-            Method: POST
+            Path: /payment
+            Method: GET
 
   GetUserBuildingFunction:
     Type: AWS::Serverless::Function
@@ -753,7 +766,8 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /members/{user_id}
             Method: PATCH
-          
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   DeleteMemberFunction:
     Type: AWS::Serverless::Function
@@ -773,7 +787,31 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /members/{user_id}
             Method: DELETE
-                  
+            Auth:
+              Authorizer: CognitoAuthorizer        
+
+  SearchBuildingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "search-building-by-code-${Environment}"
+      Handler: building.search_building_by_code.lambda_handler
+      Environment:
+        Variables:
+          TABLE_BUILDINGS: !Ref BuildingsTable
+          USERS_TABLE: !Ref UsersTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        SearchBuildingAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /search_building
+            Method: GET
+
 
 
 Outputs:

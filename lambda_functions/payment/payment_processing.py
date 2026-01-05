@@ -1,6 +1,7 @@
 import json
 import boto3
 import uuid
+import os
 from datetime import datetime
 from decimal import Decimal
 
@@ -27,10 +28,6 @@ def lambda_handler(event, context):
                 return get_payments_by_maintenance(event)
             elif 'payment_id' in query_params:
                 return get_payment_by_id(event)
-        elif http_method == 'GET' and '/payment/receipt' in path:
-            return generate_receipt(event)
-        elif http_method == 'POST' and '/payment/verify' in path:
-            return verify_payment(event)
         else:
             return {
                 'statusCode': 404,
@@ -47,6 +44,67 @@ def lambda_handler(event, context):
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
             'body': json.dumps({'message': 'Internal server error', 'error': str(e)})
         }
+
+def validate_ids(user_id, building_id, maintenance_id):
+    """Validate that user, building, and maintenance exist"""
+    dynamodb = boto3.resource('dynamodb')
+    
+    # Get table names from environment variables
+    users_table_name = os.environ.get('USERS_TABLE', 'UsersTable-dev')
+    members_table_name = os.environ.get('MEMBERS_TABLE', 'MembersTable-dev')
+    maintenance_table_name = os.environ.get('TABLE_MAINTENANCE', 'MaintenanceRecords-dev')
+    
+    users_table = dynamodb.Table(users_table_name)
+    members_table = dynamodb.Table(members_table_name)
+    maintenance_table = dynamodb.Table(maintenance_table_name)
+    
+    # Validate user
+    try:
+        user_response = users_table.get_item(Key={'user_id': user_id})
+        if 'Item' not in user_response:
+            return False, "User not found"
+    except:
+        return False, "Error validating user"
+    
+    # Validate building - Check in MembersTable
+    try:
+        # Check if user is a member in this building
+        response = members_table.query(
+            IndexName='building-index',
+            KeyConditionExpression='building_id = :b AND user_id = :u',
+            ExpressionAttributeValues={
+                ':b': building_id,
+                ':u': user_id
+            }
+        )
+        if response.get('Count', 0) == 0:
+            return False, "User is not a member of this building"
+    except Exception as e:
+        print(f"Building validation error: {str(e)}")
+        return False, "Error validating building membership"
+    
+    # Validate maintenance
+    try:
+        maintenance_response = maintenance_table.get_item(
+            Key={'maintenance_id': maintenance_id}
+        )
+        if 'Item' not in maintenance_response:
+            return False, "Maintenance not found"
+        
+        # Check if maintenance belongs to this building
+        maintenance_record = maintenance_response['Item']
+        if maintenance_record.get('building_id') != building_id:
+            return False, "Maintenance does not belong to this building"
+            
+        # Check if maintenance is already paid
+        if maintenance_record.get('status') == 'paid':
+            return False, "Maintenance is already paid"
+            
+    except Exception as e:
+        print(f"Maintenance validation error: {str(e)}")
+        return False, "Error validating maintenance"
+    
+    return True, "All validations passed"
 
 def process_payment(event):
     if 'body' not in event or not event['body']:
@@ -79,7 +137,8 @@ def process_payment(event):
         }
 
 def process_cash_payment(body):
-    required_fields = ['maintenance_id', 'amount', 'received_by', 'user_id']
+    # Required fields
+    required_fields = ['user_id', 'building_id', 'maintenance_id', 'amount']
     for field in required_fields:
         if field not in body:
             return {
@@ -88,59 +147,53 @@ def process_cash_payment(body):
                 'body': json.dumps({'message': f'Missing field: {field}'})
             }
 
-    dynamodb = boto3.resource('dynamodb')
-    maintenance_table = dynamodb.Table('MaintenanceRecords-dev')
-
-    try:
-        maintenance_response = maintenance_table.get_item(
-            Key={'maintenance_id': body['maintenance_id']}
-        )
-    except Exception as e:
-        print(f"DynamoDB error: {str(e)}")
+    # Validate all IDs
+    user_id = body['user_id']
+    building_id = body['building_id']
+    maintenance_id = body['maintenance_id']
+    
+    is_valid, message = validate_ids(user_id, building_id, maintenance_id)
+    if not is_valid:
         return {
-            'statusCode': 500,
+            'statusCode': 400,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Database error'})
+            'body': json.dumps({'message': message})
         }
 
-    if 'Item' not in maintenance_response:
-        return {
-            'statusCode': 404,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Maintenance not found'})
-        }
-
-    maintenance_record = maintenance_response['Item']
+    # Generate payment ID and timestamp
     payment_id = f"PAY-{uuid.uuid4().hex[:8].upper()}"
     current_time = datetime.utcnow().isoformat()
-
     amount_decimal = Decimal(str(body['amount']))
 
+    # Create payment record
     payment_record = {
         'payment_id': payment_id,
-        'maintenance_id': body['maintenance_id'],
-        'building_id': maintenance_record['building_id'],
-        'user_id': body['user_id'],
+        'maintenance_id': maintenance_id,
+        'building_id': building_id,
+        'user_id': user_id,
         'amount': amount_decimal,
         'payment_method': 'cash',
         'payment_status': 'completed',
-        'transaction_id': f"CASH-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-        'received_by': body['received_by'],
-        'payer_name': body.get('payer_name', ''),
-        'payer_contact': body.get('payer_contact', ''),
-        'notes': body.get('notes', ''),
         'payment_date': current_time,
         'created_at': current_time,
         'updated_at': current_time
     }
 
-    payment_table = dynamodb.Table('PaymentRecords-dev')
+    # Save to DynamoDB
+    dynamodb = boto3.resource('dynamodb')
+    payment_table_name = os.environ.get('TABLE_PAYMENT', 'PaymentRecords-dev')
+    maintenance_table_name = os.environ.get('TABLE_MAINTENANCE', 'MaintenanceRecords-dev')
+    
+    payment_table = dynamodb.Table(payment_table_name)
+    maintenance_table = dynamodb.Table(maintenance_table_name)
     
     try:
+        # Save payment
         payment_table.put_item(Item=payment_record)
         
+        # Update maintenance status to paid
         maintenance_table.update_item(
-            Key={'maintenance_id': body['maintenance_id']},
+            Key={'maintenance_id': maintenance_id},
             UpdateExpression='SET #status = :status, updated_at = :updated_at',
             ExpressionAttributeNames={'#status': 'status'},
             ExpressionAttributeValues={
@@ -156,25 +209,33 @@ def process_cash_payment(body):
             'body': json.dumps({'message': 'Failed to save payment'})
         }
 
-    print(f"Cash payment: {payment_id}")
+    print(f"Cash payment recorded: {payment_id}")
 
-    response_payment = payment_record.copy()
-    response_payment['amount'] = float(response_payment['amount'])
+    # Prepare response
+    response_data = {
+        'message': 'Cash payment successful',
+        'payment_id': payment_id,
+        'payment': {
+            'payment_id': payment_id,
+            'maintenance_id': maintenance_id,
+            'building_id': building_id,
+            'user_id': user_id,
+            'amount': float(amount_decimal),
+            'payment_method': 'cash',
+            'payment_status': 'completed',
+            'payment_date': current_time
+        }
+    }
     
     return {
         'statusCode': 201,
         'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-        'body': json.dumps({
-            'message': 'Cash payment successful',
-            'payment_id': payment_id,
-            'receipt_number': f"RC-{payment_id}",
-            'payment_method': 'cash',
-            'payment': response_payment
-        }, cls=DecimalEncoder)
+        'body': json.dumps(response_data, cls=DecimalEncoder)
     }
 
 def process_online_payment(body):
-    required_fields = ['maintenance_id', 'amount', 'card_number', 'card_holder', 'expiry_date', 'cvv', 'user_id']
+    # Required fields
+    required_fields = ['user_id', 'building_id', 'maintenance_id', 'amount', 'card_number', 'card_holder', 'expiry_date', 'cvv']
     for field in required_fields:
         if field not in body:
             return {
@@ -183,30 +244,20 @@ def process_online_payment(body):
                 'body': json.dumps({'message': f'Missing field: {field}'})
             }
 
-    dynamodb = boto3.resource('dynamodb')
-    maintenance_table = dynamodb.Table('MaintenanceRecords-dev')
-
-    try:
-        maintenance_response = maintenance_table.get_item(
-            Key={'maintenance_id': body['maintenance_id']}
-        )
-    except Exception as e:
-        print(f"DynamoDB error: {str(e)}")
+    # Validate all IDs
+    user_id = body['user_id']
+    building_id = body['building_id']
+    maintenance_id = body['maintenance_id']
+    
+    is_valid, message = validate_ids(user_id, building_id, maintenance_id)
+    if not is_valid:
         return {
-            'statusCode': 500,
+            'statusCode': 400,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Database error'})
+            'body': json.dumps({'message': message})
         }
 
-    if 'Item' not in maintenance_response:
-        return {
-            'statusCode': 404,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Maintenance not found'})
-        }
-
-    maintenance_record = maintenance_response['Item']
-
+    # Validate card details
     card_number = str(body['card_number']).replace(' ', '').replace('-', '')
     
     if len(card_number) != 16 or not card_number.isdigit():
@@ -224,52 +275,41 @@ def process_online_payment(body):
             'body': json.dumps({'message': 'Invalid CVV. Must be 3 digits.'})
         }
 
-    transaction_id = f"TXN{datetime.now().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:6].upper()}"
+    # Generate payment ID and timestamp
     payment_id = f"PAY-{uuid.uuid4().hex[:8].upper()}"
     current_time = datetime.utcnow().isoformat()
-
-    def get_card_type(card_num):
-        if card_num.startswith('4'):
-            return 'visa'
-        elif card_num.startswith('5'):
-            return 'mastercard'
-        elif card_num.startswith('34') or card_num.startswith('37'):
-            return 'amex'
-        elif card_num.startswith('6'):
-            return 'discover'
-        else:
-            return 'unknown'
-
     amount_decimal = Decimal(str(body['amount']))
 
+    # Create payment record
     payment_record = {
         'payment_id': payment_id,
-        'maintenance_id': body['maintenance_id'],
-        'building_id': maintenance_record['building_id'],
-        'user_id': body['user_id'],
+        'maintenance_id': maintenance_id,
+        'building_id': building_id,
+        'user_id': user_id,
         'amount': amount_decimal,
         'payment_method': 'online',
         'payment_status': 'completed',
-        'transaction_id': transaction_id,
-        'gateway_reference': f"GW-{uuid.uuid4().hex[:8].upper()}",
-        'card_last_four': card_number[-4:],
-        'card_type': get_card_type(card_number),
-        'payer_name': body['card_holder'],
-        'payer_email': body.get('payer_email', ''),
-        'payer_contact': body.get('payer_contact', ''),
         'payment_date': current_time,
         'created_at': current_time,
         'updated_at': current_time
     }
 
-    payment_table = dynamodb.Table('PaymentRecords-dev')
+    # Save to DynamoDB
+    dynamodb = boto3.resource('dynamodb')
+    payment_table_name = os.environ.get('TABLE_PAYMENT', 'PaymentRecords-dev')
+    maintenance_table_name = os.environ.get('TABLE_MAINTENANCE', 'MaintenanceRecords-dev')
+    
+    payment_table = dynamodb.Table(payment_table_name)
+    maintenance_table = dynamodb.Table(maintenance_table_name)
     
     try:
+        # Save payment
         payment_table.put_item(Item=payment_record)
         
+        # Update maintenance status to paid
         maintenance_table.update_item(
-            Key={'maintenance_id': body['maintenance_id']},
-            UpdateExpression= SET,
+            Key={'maintenance_id': maintenance_id},
+            UpdateExpression='SET #status = :status, updated_at = :updated_at',
             ExpressionAttributeNames={'#status': 'status'},
             ExpressionAttributeValues={
                 ':status': 'paid',
@@ -284,25 +324,28 @@ def process_online_payment(body):
             'body': json.dumps({'message': 'Failed to save payment'})
         }
 
-    print(f"Online payment: {payment_id}")
+    print(f"Online payment recorded: {payment_id}")
 
-    response_payment = payment_record.copy()
-    response_payment['amount'] = float(response_payment['amount'])
+    # Prepare response
+    response_data = {
+        'message': 'Online payment successful',
+        'payment_id': payment_id,
+        'payment': {
+            'payment_id': payment_id,
+            'maintenance_id': maintenance_id,
+            'building_id': building_id,
+            'user_id': user_id,
+            'amount': float(amount_decimal),
+            'payment_method': 'online',
+            'payment_status': 'completed',
+            'payment_date': current_time
+        }
+    }
     
     return {
         'statusCode': 201,
         'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-        'body': json.dumps({
-            'message': 'Online payment successful',
-            'payment_id': payment_id,
-            'transaction_id': transaction_id,
-            'receipt_number': f"RC-{payment_id}",
-            'payment_method': 'online',
-            'payment': {
-                **response_payment,
-                'card_number': f"**** **** **** {card_number[-4:]}"
-            }
-        }, cls=DecimalEncoder)
+        'body': json.dumps(response_data, cls=DecimalEncoder)
     }
 
 def get_payments_by_maintenance(event):
@@ -317,20 +360,30 @@ def get_payments_by_maintenance(event):
         }
 
     dynamodb = boto3.resource('dynamodb')
-    table = dynamodb.Table('PaymentRecords-dev')
+    payment_table_name = os.environ.get('TABLE_PAYMENT', 'PaymentRecords-dev')
+    table = dynamodb.Table(payment_table_name)
 
     try:
-        response = table.scan(
-            FilterExpression='maintenance_id = :maintenance_id',
+        # Use the MaintenanceIndex GSI
+        response = table.query(
+            IndexName='MaintenanceIndex',
+            KeyConditionExpression='maintenance_id = :maintenance_id',
             ExpressionAttributeValues={':maintenance_id': maintenance_id}
         )
     except Exception as e:
         print(f"DynamoDB error: {str(e)}")
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Database error'})
-        }
+        # Fallback to scan if index doesn't exist
+        try:
+            response = table.scan(
+                FilterExpression='maintenance_id = :maintenance_id',
+                ExpressionAttributeValues={':maintenance_id': maintenance_id}
+            )
+        except Exception as e2:
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'message': 'Database error'})
+            }
 
     def convert_decimals(obj):
         if isinstance(obj, Decimal):
@@ -371,7 +424,8 @@ def get_payment_by_id(event):
         }
 
     dynamodb = boto3.resource('dynamodb')
-    table = dynamodb.Table('PaymentRecords-dev')
+    payment_table_name = os.environ.get('TABLE_PAYMENT', 'PaymentRecords-dev')
+    table = dynamodb.Table(payment_table_name)
 
     try:
         response = table.get_item(Key={'payment_id': payment_id})
@@ -405,157 +459,4 @@ def get_payment_by_id(event):
         'statusCode': 200,
         'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
         'body': json.dumps(payment, cls=DecimalEncoder)
-    }
-
-def generate_receipt(event):
-    query_params = event.get('queryStringParameters', {}) or {}
-    payment_id = query_params.get('payment_id')
-
-    if not payment_id:
-        return {
-            'statusCode': 400,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'payment_id query parameter is required'})
-        }
-
-    dynamodb = boto3.resource('dynamodb')
-    payment_table = dynamodb.Table('PaymentRecords-dev')
-
-    try:
-        payment_response = payment_table.get_item(Key={'payment_id': payment_id})
-    except Exception as e:
-        print(f"DynamoDB error: {str(e)}")
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Database error'})
-        }
-
-    if 'Item' not in payment_response:
-        return {
-            'statusCode': 404,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Payment not found'})
-        }
-
-    payment_record = payment_response['Item']
-
-    maintenance_table = dynamodb.Table('MaintenanceRecords-dev')
-    
-    try:
-        maintenance_response = maintenance_table.get_item(
-            Key={'maintenance_id': payment_record['maintenance_id']}
-        )
-    except Exception as e:
-        print(f"DynamoDB error: {str(e)}")
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Database error'})
-        }
-
-    if 'Item' not in maintenance_response:
-        return {
-            'statusCode': 404,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Maintenance not found'})
-        }
-
-    maintenance_record = maintenance_response['Item']
-
-    amount = float(payment_record['amount']) if isinstance(payment_record['amount'], Decimal) else payment_record['amount']
-
-    receipt_data = {
-        'receipt_number': f"RC-{payment_id}",
-        'payment_id': payment_id,
-        'transaction_id': payment_record['transaction_id'],
-        'payment_date': payment_record['payment_date'],
-        'amount': amount,
-        'payment_method': payment_record['payment_method'],
-        'payer_name': payment_record.get('payer_name', 'N/A'),
-        'user_id': payment_record.get('user_id'),
-        'building_id': payment_record['building_id'],
-        'maintenance_id': payment_record['maintenance_id'],
-        'bill_name': maintenance_record['bill_name'],
-        'description': maintenance_record.get('description', ''),
-        'status': 'PAID',
-        'issued_date': datetime.utcnow().isoformat()
-    }
-
-    return {
-        'statusCode': 200,
-        'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-        'body': json.dumps({
-            'message': 'Receipt generated',
-            'receipt': receipt_data
-        }, cls=DecimalEncoder)
-    }
-
-def verify_payment(event):
-    if 'body' not in event or not event['body']:
-        return {
-            'statusCode': 400,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Request body is missing'})
-        }
-    
-    try:
-        body = json.loads(event['body'])
-    except json.JSONDecodeError:
-        return {
-            'statusCode': 400,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Invalid JSON in request body'})
-        }
-
-    transaction_id = body.get('transaction_id')
-
-    if not transaction_id:
-        return {
-            'statusCode': 400,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'transaction_id is required'})
-        }
-
-    dynamodb = boto3.resource('dynamodb')
-    table = dynamodb.Table('PaymentRecords-dev')
-
-    try:
-        response = table.scan(
-            FilterExpression='transaction_id = :transaction_id',
-            ExpressionAttributeValues={':transaction_id': transaction_id}
-        )
-    except Exception as e:
-        print(f"DynamoDB error: {str(e)}")
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Database error'})
-        }
-
-    items = response.get('Items', [])
-
-    if not items:
-        return {
-            'statusCode': 404,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Transaction not found'})
-        }
-
-    payment_record = items[0]
-
-    amount = float(payment_record['amount']) if isinstance(payment_record['amount'], Decimal) else payment_record['amount']
-
-    return {
-        'statusCode': 200,
-        'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-        'body': json.dumps({
-            'transaction_id': transaction_id,
-            'payment_status': payment_record['payment_status'],
-            'payment_id': payment_record['payment_id'],
-            'user_id': payment_record.get('user_id'),
-            'amount': amount,
-            'payment_date': payment_record['payment_date'],
-            'verified': True
-        }, cls=DecimalEncoder)
     }
