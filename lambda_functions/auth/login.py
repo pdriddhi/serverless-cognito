@@ -2,24 +2,32 @@ import json
 import boto3
 import os
 import traceback
+from datetime import datetime
 from botocore.exceptions import ClientError
 
 cognito_client = boto3.client('cognito-idp')
 dynamodb = boto3.resource('dynamodb')
 
+# Environment variables
 USERS_TABLE_NAME = os.environ.get('TABLE_USERS', 'Users-dev')
-USER_POOL_ID = os.environ.get('USER_POOL_ID') or os.environ.get('UserPoolId')
-CLIENT_ID = os.environ.get('COGNITO_CLIENT_ID') or os.environ.get('CognitoClientId') or os.environ.get('ClientId')
+USER_BUILDING_ROLES_TABLE = os.environ.get('TABLE_USER_BUILDING_ROLES', 'UserBuildingRoles-dev')
+USER_POOL_ID = os.environ.get('USER_POOL_ID')
+CLIENT_ID = os.environ.get('COGNITO_CLIENT_ID')
 
-print(f"Login Function - Env Variables: USER_POOL_ID={USER_POOL_ID}, CLIENT_ID={CLIENT_ID}, TABLE={USERS_TABLE_NAME}")
+print(f"Login Function - Env Variables: USER_POOL_ID={USER_POOL_ID}, CLIENT_ID={CLIENT_ID}")
 
 users_table = dynamodb.Table(USERS_TABLE_NAME)
+user_building_roles_table = dynamodb.Table(USER_BUILDING_ROLES_TABLE)
+
+def get_consistent_user_id(mobile):
+    """Get consistent user_id based on mobile number"""
+    return f"user_{mobile}"
 
 def lambda_handler(event, context):
     try:
         print("=== LOGIN STARTED ===")
-        print(f"Event: {event}")
         
+        # Parse request body
         if isinstance(event.get('body'), str):
             body = json.loads(event.get('body', '{}'))
         else:
@@ -71,10 +79,10 @@ def lambda_handler(event, context):
                 })
             }
 
-        
         cognito_mobile = f'+91{mobile}'
         print(f"Login attempt for: {cognito_mobile}")
 
+        # COGNITO AUTHENTICATION
         try:
             print("Attempting ADMIN_NO_SRP_AUTH...")
             auth_response = cognito_client.admin_initiate_auth(
@@ -89,7 +97,6 @@ def lambda_handler(event, context):
             
             print(f"Auth response received: {auth_response.get('ChallengeName', 'SUCCESS')}")
             
-        
             if auth_response.get('ChallengeName') == 'NEW_PASSWORD_REQUIRED':
                 print("Handling NEW_PASSWORD_REQUIRED challenge...")
                 
@@ -140,7 +147,6 @@ def lambda_handler(event, context):
                     })
                 }
             elif error_code == 'UserNotConfirmedException':
-                
                 try:
                     print("Auto-confirming user phone number...")
                     cognito_client.admin_update_user_attributes(
@@ -190,23 +196,7 @@ def lambda_handler(event, context):
                     })
                 }
 
-        if 'AuthenticationResult' not in locals() and 'AuthenticationResult' not in auth_response:
-            return {
-                'statusCode': 401,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Credentials': 'true'
-                },
-                'body': json.dumps({
-                    'message': 'Authentication incomplete',
-                    'success': False
-                })
-            }
-
-        auth_result = auth_response.get('AuthenticationResult', auth_result) if 'auth_result' not in locals() else auth_result
-        
-        
+        # Get user info from Cognito
         try:
             user_info = cognito_client.get_user(AccessToken=auth_result['AccessToken'])
             user_attributes = {attr['Name']: attr['Value'] for attr in user_info.get('UserAttributes', [])}
@@ -215,48 +205,67 @@ def lambda_handler(event, context):
             print(f"Error getting user info: {str(e)}")
             name = ''
 
+        # DYNAMODB USERS TABLE HANDLING
+        user_id = get_consistent_user_id(mobile)
+        
         try:
-  
-            response = users_table.query(
-                IndexName='mobile-index',
-                KeyConditionExpression='mobile = :m',
-                ExpressionAttributeValues={':m': mobile}
+            # Check if user exists in our Users table
+            response = users_table.get_item(
+                Key={'user_id': user_id}
             )
             
-            if response.get('Items') and len(response['Items']) > 0:
-                user_item = response['Items'][0]
-                user_type = user_item.get('user_type', 'resident')
-                user_id = user_item.get('user_id', cognito_mobile.replace('+', ''))
+            if 'Item' in response:
+                user_item = response['Item']
+                # Update last login
+                users_table.update_item(
+                    Key={'user_id': user_id},
+                    UpdateExpression='SET last_login = :login',
+                    ExpressionAttributeValues={':login': datetime.now().isoformat()}
+                )
+                print(f"User found in DynamoDB: {user_id}")
             else:
-  
-                user_id = cognito_mobile.replace('+', '')
-                user_type = 'resident'
-                
+                # Create new user record if doesn't exist
                 users_table.put_item(
                     Item={
                         'user_id': user_id,
                         'name': name,
                         'mobile': mobile,
                         'cognito_username': cognito_mobile,
-                        'user_type': user_type,
-                        'status': 'active'
+                        'status': 'active',
+                        'created_at': datetime.now().isoformat(),
+                        'last_login': datetime.now().isoformat()
                     }
                 )
+                print(f"Created new user record in DynamoDB: {user_id}")
                 
         except Exception as db_error:
             print(f"Database error: {str(db_error)}")
-            user_id = cognito_mobile.replace('+', '')
-            user_type = 'resident'
+            # Continue even if DB operation fails
 
-      
+        # GET USER'S BUILDING ROLES
+        try:
+            roles_response = user_building_roles_table.query(
+                IndexName='UserIdIndex',
+                KeyConditionExpression='user_id = :uid',
+                ExpressionAttributeValues={':uid': user_id}
+            )
+            
+            building_roles = roles_response.get('Items', [])
+            print(f"Found {len(building_roles)} building roles for user {user_id}")
+            
+        except Exception as roles_error:
+            print(f"Error fetching user roles: {str(roles_error)}")
+            building_roles = []
+
+        # PREPARE RESPONSE
         response_body = {
             'message': 'Login successful',
             'success': True,
             'user': {
+                'user_id': user_id,
                 'name': name,
                 'mobile': mobile,
-                'user_id': user_id,
-                'user_type': user_type
+                'building_roles': building_roles  # Include all building roles
             },
             'tokens': {
                 'id_token': auth_result.get('IdToken', ''),

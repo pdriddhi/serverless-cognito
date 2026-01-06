@@ -31,6 +31,59 @@ Parameters:
 
 Resources:
 
+  UserBuildingRolesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "UserBuildingRoles-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+
+      AttributeDefinitions:
+        - AttributeName: user_building_composite
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: building_id
+          AttributeType: S
+        - AttributeName: role
+          AttributeType: S
+
+      KeySchema:
+        - AttributeName: user_building_composite
+          KeyType: HASH
+
+      GlobalSecondaryIndexes:
+        - IndexName: UserIdIndex
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+        - IndexName: BuildingIdIndex
+          KeySchema:
+            - AttributeName: building_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+        - IndexName: UserIdRoleIndex
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+            - AttributeName: role
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+        - IndexName: BuildingIdRoleIndex
+          KeySchema:
+            - AttributeName: building_id
+              KeyType: HASH
+            - AttributeName: role
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
   BuildingMembersTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -63,18 +116,6 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
-
-  ApartmentsTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub "ApartmentsTable-${Environment}"
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: apartment_id
-          AttributeType: S
-      KeySchema:
-        - AttributeName: apartment_id
-          KeyType: HASH
 
   BuildingsTable:
     Type: AWS::DynamoDB::Table
@@ -115,18 +156,6 @@ Resources:
           AttributeType: S
       KeySchema:
         - AttributeName: mobile
-          KeyType: HASH
-
-  SuperAdminsTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub "SuperAdmins-${Environment}"
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: admin_id
-          AttributeType: S
-      KeySchema:
-        - AttributeName: admin_id
           KeyType: HASH
 
   UserUnitsTable:
@@ -358,6 +387,7 @@ Resources:
         Variables:
           TABLE_USERS: !Ref UsersTable
           TABLE_LOGIN: !Ref LoginUsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
           ENVIRONMENT: !Ref Environment
           COGNITO_CLIENT_ID: !Ref CognitoClientId
           USER_POOL_ID: !Ref UserPoolId
@@ -394,6 +424,7 @@ Resources:
         Variables:
           TABLE_USERS: !Ref UsersTable
           TABLE_LOGIN: !Ref LoginUsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
           ENVIRONMENT: !Ref Environment
           COGNITO_CLIENT_ID: !Ref CognitoClientId
           USER_POOL_ID: !Ref UserPoolId
@@ -428,6 +459,7 @@ Resources:
         Variables:
           TABLE_BUILDINGS: !Ref BuildingsTable
           USERS_TABLE: !Ref UsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref BuildingsTable
@@ -469,11 +501,14 @@ Resources:
         Variables:
           TABLE_BUILDINGS: !Ref BuildingsTable
           USERS_TABLE: !Ref UsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref BuildingsTable
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable    
       Events:
         UpdateBuildingAPI:
           Type: Api
@@ -490,9 +525,12 @@ Resources:
       Environment:
         Variables:
           TABLE_BUILDINGS: !Ref BuildingsTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable 
       Events:
         DeleteBuildingAPI:
           Type: Api
@@ -511,13 +549,16 @@ Resources:
           TABLE_USERUNITS: !Ref UserUnitsTable
           USERS_TABLE: !Ref UsersTable  
           TABLE_BUILDINGS: !Ref BuildingsTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UserUnitsTable
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable     
         - DynamoDBReadPolicy:
-            TableName: !Ref BuildingsTable    
+            TableName: !Ref BuildingsTable 
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable             
       Events:
         AssignUnitAPI:
           Type: Api
@@ -581,6 +622,7 @@ Resources:
           MEMBERS_TABLE: !Ref MembersTable
           TABLE_BUILDINGS: !Ref BuildingsTable
           USERS_TABLE: !Ref UsersTable 
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref UserUnitsTable
@@ -590,6 +632,8 @@ Resources:
             TableName: !Ref BuildingsTable
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable 
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable   
       Events:
         CheckUnitAvailabilityAPI:
           Type: Api
@@ -606,9 +650,12 @@ Resources:
       Environment:
         Variables:
           TABLE_UNIT_MAINTENANCE: !Ref UnitMaintenanceTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable 
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UnitMaintenanceTable
+        - DynamoDBReadPolicy:  # ADD THIS
+            TableName: !Ref UserBuildingRolesTable        
         - Statement:
           - Effect: Allow
             Action:
@@ -652,6 +699,7 @@ Resources:
           TABLE_PAYMENT: !Ref PaymentTable
           TABLE_BUILDINGS: !Ref BuildingsTable
           TABLE_USERS: !Ref UsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref MaintenanceTable
@@ -660,7 +708,9 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref BuildingsTable
         - DynamoDBReadPolicy:
-            TableName: !Ref UsersTable    
+            TableName: !Ref UsersTable  
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable      
       Events:
         MaintenancePOST:
           Type: Api
@@ -680,6 +730,7 @@ Resources:
           TABLE_PAYMENT: !Ref PaymentTable
           USERS_TABLE: !Ref UsersTable
           MEMBERS_TABLE: !Ref MembersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref MaintenanceTable
@@ -688,7 +739,9 @@ Resources:
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
         - DynamoDBReadPolicy:
-            TableName: !Ref MembersTable    
+            TableName: !Ref MembersTable 
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable       
       Events:
         PaymentProcessPOST:
           Type: Api
@@ -813,11 +866,14 @@ Resources:
         Variables:
           MEMBERS_TABLE: !Ref MembersTable
           USERS_TABLE: !Ref UsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref MembersTable
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:  
+            TableName: !Ref UserBuildingRolesTable      
       Events:
         CreateMemberAPI:
           Type: Api
@@ -909,6 +965,7 @@ Resources:
           TABLE_USERUNITS: !Ref UserUnitsTable
           MEMBERS_TABLE: !Ref MembersTable
           TABLE_USERS: !Ref UsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
           CHECK_AVAILABILITY_FUNCTION: !Sub "check-unit-availability-${Environment}"
       Policies:
         - DynamoDBCrudPolicy:
@@ -921,6 +978,8 @@ Resources:
             TableName: !Ref MembersTable
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
+        - DynamoDBReadPolicy: 
+            TableName: !Ref UserBuildingRolesTable      
         - LambdaInvokePolicy:
             FunctionName: !Ref CheckUnitAvailabilityFunction
       Events:
@@ -968,6 +1027,7 @@ Resources:
           TABLE_USERUNITS: !Ref UserUnitsTable
           MEMBERS_TABLE: !Ref MembersTable
           TABLE_USERS: !Ref UsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable 
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ConnectionRequestsTable
@@ -979,6 +1039,8 @@ Resources:
             TableName: !Ref BuildingsTable
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy: 
+            TableName: !Ref UserBuildingRolesTable    
       Events:
         ProcessConnectionRequestAPI:
           Type: Api
@@ -999,6 +1061,7 @@ Resources:
           TABLE_USERUNITS: !Ref UserUnitsTable
           MEMBERS_TABLE: !Ref MembersTable
           TABLE_USERS: !Ref UsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable 
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref ConnectionRequestsTable
@@ -1010,6 +1073,8 @@ Resources:
             TableName: !Ref MembersTable
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable     
       Events:
         GetUserConnectedBuildingsAPI:
           Type: Api
