@@ -15,8 +15,6 @@ class DecimalEncoder(json.JSONEncoder):
 
 def lambda_handler(event, context):
     try:
-        print("=== PAYMENT PROCESSING ===")
-        
         http_method = event.get('httpMethod')
         path = event.get('path', '')
         
@@ -45,20 +43,19 @@ def lambda_handler(event, context):
             'body': json.dumps({'message': 'Internal server error', 'error': str(e)})
         }
 
-def validate_ids(user_id, building_id, maintenance_id):
-    """Validate that user, building, and maintenance exist"""
+def validate_ids(user_id, building_id, maintenance_id, unit_maintenance_id):
     dynamodb = boto3.resource('dynamodb')
     
-    # Get table names from environment variables
     users_table_name = os.environ.get('USERS_TABLE', 'UsersTable-dev')
     members_table_name = os.environ.get('MEMBERS_TABLE', 'MembersTable-dev')
     maintenance_table_name = os.environ.get('TABLE_MAINTENANCE', 'MaintenanceRecords-dev')
+    unit_maintenance_table_name = os.environ.get('TABLE_UNIT_MAINTENANCE', 'UnitMaintenanceRecords-dev')
     
     users_table = dynamodb.Table(users_table_name)
     members_table = dynamodb.Table(members_table_name)
     maintenance_table = dynamodb.Table(maintenance_table_name)
+    unit_maintenance_table = dynamodb.Table(unit_maintenance_table_name)
     
-    # Validate user
     try:
         user_response = users_table.get_item(Key={'user_id': user_id})
         if 'Item' not in user_response:
@@ -66,9 +63,7 @@ def validate_ids(user_id, building_id, maintenance_id):
     except:
         return False, "Error validating user"
     
-    # Validate building - Check in MembersTable
     try:
-        # Check if user is a member in this building
         response = members_table.query(
             IndexName='building-index',
             KeyConditionExpression='building_id = :b AND user_id = :u',
@@ -83,26 +78,45 @@ def validate_ids(user_id, building_id, maintenance_id):
         print(f"Building validation error: {str(e)}")
         return False, "Error validating building membership"
     
-    # Validate maintenance
-    try:
-        maintenance_response = maintenance_table.get_item(
-            Key={'maintenance_id': maintenance_id}
-        )
-        if 'Item' not in maintenance_response:
-            return False, "Maintenance not found"
-        
-        # Check if maintenance belongs to this building
-        maintenance_record = maintenance_response['Item']
-        if maintenance_record.get('building_id') != building_id:
-            return False, "Maintenance does not belong to this building"
+    is_unit_maintenance = bool(unit_maintenance_id)
+    
+    if is_unit_maintenance:
+        try:
+            unit_maintenance_response = unit_maintenance_table.get_item(
+                Key={'unit_maintenance_id': unit_maintenance_id}
+            )
+            if 'Item' not in unit_maintenance_response:
+                return False, "Unit maintenance record not found"
             
-        # Check if maintenance is already paid
-        if maintenance_record.get('status') == 'paid':
-            return False, "Maintenance is already paid"
+            maintenance_record = unit_maintenance_response['Item']
+            if maintenance_record.get('building_id') != building_id:
+                return False, "Unit maintenance does not belong to this building"
+                
+            if maintenance_record.get('status') == 'paid':
+                return False, "Unit maintenance is already paid"
+                
+        except Exception as e:
+            print(f"Unit maintenance validation error: {str(e)}")
+            return False, "Error validating unit maintenance"
+    else:
+        try:
+            maintenance_response = maintenance_table.get_item(
+                Key={'maintenance_id': maintenance_id}
+            )
             
-    except Exception as e:
-        print(f"Maintenance validation error: {str(e)}")
-        return False, "Error validating maintenance"
+            if 'Item' not in maintenance_response:
+                return False, "Maintenance record not found"
+            
+            maintenance_record = maintenance_response['Item']
+            if maintenance_record.get('building_id') != building_id:
+                return False, "Maintenance does not belong to this building"
+                
+            if maintenance_record.get('status') == 'paid':
+                return False, "Maintenance is already paid"
+                
+        except Exception as e:
+            print(f"Maintenance validation error: {str(e)}")
+            return False, "Error validating maintenance"
     
     return True, "All validations passed"
 
@@ -137,8 +151,7 @@ def process_payment(event):
         }
 
 def process_cash_payment(body):
-    # Required fields
-    required_fields = ['user_id', 'building_id', 'maintenance_id', 'amount']
+    required_fields = ['user_id', 'building_id', 'amount']
     for field in required_fields:
         if field not in body:
             return {
@@ -146,13 +159,21 @@ def process_cash_payment(body):
                 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
                 'body': json.dumps({'message': f'Missing field: {field}'})
             }
+    
+    maintenance_id = body.get('maintenance_id')
+    unit_maintenance_id = body.get('unit_maintenance_id')
+    
+    if not maintenance_id and not unit_maintenance_id:
+        return {
+            'statusCode': 400,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'message': 'Either maintenance_id or unit_maintenance_id is required'})
+        }
 
-    # Validate all IDs
     user_id = body['user_id']
     building_id = body['building_id']
-    maintenance_id = body['maintenance_id']
     
-    is_valid, message = validate_ids(user_id, building_id, maintenance_id)
+    is_valid, message = validate_ids(user_id, building_id, maintenance_id, unit_maintenance_id)
     if not is_valid:
         return {
             'statusCode': 400,
@@ -160,15 +181,12 @@ def process_cash_payment(body):
             'body': json.dumps({'message': message})
         }
 
-    # Generate payment ID and timestamp
     payment_id = f"PAY-{uuid.uuid4().hex[:8].upper()}"
     current_time = datetime.utcnow().isoformat()
     amount_decimal = Decimal(str(body['amount']))
 
-    # Create payment record
     payment_record = {
         'payment_id': payment_id,
-        'maintenance_id': maintenance_id,
         'building_id': building_id,
         'user_id': user_id,
         'amount': amount_decimal,
@@ -178,29 +196,46 @@ def process_cash_payment(body):
         'created_at': current_time,
         'updated_at': current_time
     }
+    
+    if maintenance_id:
+        payment_record['maintenance_id'] = maintenance_id
+    
+    if unit_maintenance_id:
+        payment_record['unit_maintenance_id'] = unit_maintenance_id
 
-    # Save to DynamoDB
     dynamodb = boto3.resource('dynamodb')
     payment_table_name = os.environ.get('TABLE_PAYMENT', 'PaymentRecords-dev')
     maintenance_table_name = os.environ.get('TABLE_MAINTENANCE', 'MaintenanceRecords-dev')
+    unit_maintenance_table_name = os.environ.get('TABLE_UNIT_MAINTENANCE', 'UnitMaintenanceRecords-dev')
     
     payment_table = dynamodb.Table(payment_table_name)
     maintenance_table = dynamodb.Table(maintenance_table_name)
+    unit_maintenance_table = dynamodb.Table(unit_maintenance_table_name)
     
     try:
-        # Save payment
         payment_table.put_item(Item=payment_record)
         
-        # Update maintenance status to paid
-        maintenance_table.update_item(
-            Key={'maintenance_id': maintenance_id},
-            UpdateExpression='SET #status = :status, updated_at = :updated_at',
-            ExpressionAttributeNames={'#status': 'status'},
-            ExpressionAttributeValues={
-                ':status': 'paid',
-                ':updated_at': current_time
-            }
-        )
+        if maintenance_id:
+            maintenance_table.update_item(
+                Key={'maintenance_id': maintenance_id},
+                UpdateExpression='SET #status = :status, updated_at = :updated_at',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={
+                    ':status': 'paid',
+                    ':updated_at': current_time
+                }
+            )
+        
+        if unit_maintenance_id:
+            unit_maintenance_table.update_item(
+                Key={'unit_maintenance_id': unit_maintenance_id},
+                UpdateExpression='SET #status = :status, updated_at = :updated_at',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={
+                    ':status': 'paid',
+                    ':updated_at': current_time
+                }
+            )
     except Exception as e:
         print(f"DynamoDB write error: {str(e)}")
         return {
@@ -211,13 +246,11 @@ def process_cash_payment(body):
 
     print(f"Cash payment recorded: {payment_id}")
 
-    # Prepare response
     response_data = {
         'message': 'Cash payment successful',
         'payment_id': payment_id,
         'payment': {
             'payment_id': payment_id,
-            'maintenance_id': maintenance_id,
             'building_id': building_id,
             'user_id': user_id,
             'amount': float(amount_decimal),
@@ -227,6 +260,12 @@ def process_cash_payment(body):
         }
     }
     
+    if maintenance_id:
+        response_data['payment']['maintenance_id'] = maintenance_id
+    
+    if unit_maintenance_id:
+        response_data['payment']['unit_maintenance_id'] = unit_maintenance_id
+    
     return {
         'statusCode': 201,
         'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
@@ -234,8 +273,7 @@ def process_cash_payment(body):
     }
 
 def process_online_payment(body):
-    # Required fields
-    required_fields = ['user_id', 'building_id', 'maintenance_id', 'amount', 'card_number', 'card_holder', 'expiry_date', 'cvv']
+    required_fields = ['user_id', 'building_id', 'amount', 'card_number', 'card_holder', 'expiry_date', 'cvv']
     for field in required_fields:
         if field not in body:
             return {
@@ -243,13 +281,21 @@ def process_online_payment(body):
                 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
                 'body': json.dumps({'message': f'Missing field: {field}'})
             }
+    
+    maintenance_id = body.get('maintenance_id')
+    unit_maintenance_id = body.get('unit_maintenance_id')
+    
+    if not maintenance_id and not unit_maintenance_id:
+        return {
+            'statusCode': 400,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'message': 'Either maintenance_id or unit_maintenance_id is required'})
+        }
 
-    # Validate all IDs
     user_id = body['user_id']
     building_id = body['building_id']
-    maintenance_id = body['maintenance_id']
     
-    is_valid, message = validate_ids(user_id, building_id, maintenance_id)
+    is_valid, message = validate_ids(user_id, building_id, maintenance_id, unit_maintenance_id)
     if not is_valid:
         return {
             'statusCode': 400,
@@ -257,7 +303,6 @@ def process_online_payment(body):
             'body': json.dumps({'message': message})
         }
 
-    # Validate card details
     card_number = str(body['card_number']).replace(' ', '').replace('-', '')
     
     if len(card_number) != 16 or not card_number.isdigit():
@@ -275,15 +320,12 @@ def process_online_payment(body):
             'body': json.dumps({'message': 'Invalid CVV. Must be 3 digits.'})
         }
 
-    # Generate payment ID and timestamp
     payment_id = f"PAY-{uuid.uuid4().hex[:8].upper()}"
     current_time = datetime.utcnow().isoformat()
     amount_decimal = Decimal(str(body['amount']))
 
-    # Create payment record
     payment_record = {
         'payment_id': payment_id,
-        'maintenance_id': maintenance_id,
         'building_id': building_id,
         'user_id': user_id,
         'amount': amount_decimal,
@@ -293,29 +335,46 @@ def process_online_payment(body):
         'created_at': current_time,
         'updated_at': current_time
     }
+    
+    if maintenance_id:
+        payment_record['maintenance_id'] = maintenance_id
+    
+    if unit_maintenance_id:
+        payment_record['unit_maintenance_id'] = unit_maintenance_id
 
-    # Save to DynamoDB
     dynamodb = boto3.resource('dynamodb')
     payment_table_name = os.environ.get('TABLE_PAYMENT', 'PaymentRecords-dev')
     maintenance_table_name = os.environ.get('TABLE_MAINTENANCE', 'MaintenanceRecords-dev')
+    unit_maintenance_table_name = os.environ.get('TABLE_UNIT_MAINTENANCE', 'UnitMaintenanceRecords-dev')
     
     payment_table = dynamodb.Table(payment_table_name)
     maintenance_table = dynamodb.Table(maintenance_table_name)
+    unit_maintenance_table = dynamodb.Table(unit_maintenance_table_name)
     
     try:
-        # Save payment
         payment_table.put_item(Item=payment_record)
         
-        # Update maintenance status to paid
-        maintenance_table.update_item(
-            Key={'maintenance_id': maintenance_id},
-            UpdateExpression='SET #status = :status, updated_at = :updated_at',
-            ExpressionAttributeNames={'#status': 'status'},
-            ExpressionAttributeValues={
-                ':status': 'paid',
-                ':updated_at': current_time
-            }
-        )
+        if maintenance_id:
+            maintenance_table.update_item(
+                Key={'maintenance_id': maintenance_id},
+                UpdateExpression='SET #status = :status, updated_at = :updated_at',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={
+                    ':status': 'paid',
+                    ':updated_at': current_time
+                }
+            )
+        
+        if unit_maintenance_id:
+            unit_maintenance_table.update_item(
+                Key={'unit_maintenance_id': unit_maintenance_id},
+                UpdateExpression='SET #status = :status, updated_at = :updated_at',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={
+                    ':status': 'paid',
+                    ':updated_at': current_time
+                }
+            )
     except Exception as e:
         print(f"DynamoDB write error: {str(e)}")
         return {
@@ -326,13 +385,11 @@ def process_online_payment(body):
 
     print(f"Online payment recorded: {payment_id}")
 
-    # Prepare response
     response_data = {
         'message': 'Online payment successful',
         'payment_id': payment_id,
         'payment': {
             'payment_id': payment_id,
-            'maintenance_id': maintenance_id,
             'building_id': building_id,
             'user_id': user_id,
             'amount': float(amount_decimal),
@@ -341,6 +398,12 @@ def process_online_payment(body):
             'payment_date': current_time
         }
     }
+    
+    if maintenance_id:
+        response_data['payment']['maintenance_id'] = maintenance_id
+    
+    if unit_maintenance_id:
+        response_data['payment']['unit_maintenance_id'] = unit_maintenance_id
     
     return {
         'statusCode': 201,
@@ -351,12 +414,13 @@ def process_online_payment(body):
 def get_payments_by_maintenance(event):
     query_params = event.get('queryStringParameters', {}) or {}
     maintenance_id = query_params.get('maintenance_id')
+    unit_maintenance_id = query_params.get('unit_maintenance_id')
 
-    if not maintenance_id:
+    if not maintenance_id and not unit_maintenance_id:
         return {
             'statusCode': 400,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'maintenance_id query parameter is required'})
+            'body': json.dumps({'message': 'Either maintenance_id or unit_maintenance_id query parameter is required'})
         }
 
     dynamodb = boto3.resource('dynamodb')
@@ -364,20 +428,31 @@ def get_payments_by_maintenance(event):
     table = dynamodb.Table(payment_table_name)
 
     try:
-        # Use the MaintenanceIndex GSI
-        response = table.query(
-            IndexName='MaintenanceIndex',
-            KeyConditionExpression='maintenance_id = :maintenance_id',
-            ExpressionAttributeValues={':maintenance_id': maintenance_id}
-        )
-    except Exception as e:
-        print(f"DynamoDB error: {str(e)}")
-        # Fallback to scan if index doesn't exist
-        try:
-            response = table.scan(
-                FilterExpression='maintenance_id = :maintenance_id',
+        if maintenance_id:
+            response = table.query(
+                IndexName='MaintenanceIndex',
+                KeyConditionExpression='maintenance_id = :maintenance_id',
                 ExpressionAttributeValues={':maintenance_id': maintenance_id}
             )
+        else:
+            response = table.query(
+                IndexName='UnitMaintenanceIndex',
+                KeyConditionExpression='unit_maintenance_id = :unit_maintenance_id',
+                ExpressionAttributeValues={':unit_maintenance_id': unit_maintenance_id}
+            )
+    except Exception as e:
+        print(f"DynamoDB error: {str(e)}")
+        try:
+            if maintenance_id:
+                response = table.scan(
+                    FilterExpression='maintenance_id = :maintenance_id',
+                    ExpressionAttributeValues={':maintenance_id': maintenance_id}
+                )
+            else:
+                response = table.scan(
+                    FilterExpression='unit_maintenance_id = :unit_maintenance_id',
+                    ExpressionAttributeValues={':unit_maintenance_id': unit_maintenance_id}
+                )
         except Exception as e2:
             return {
                 'statusCode': 500,
@@ -397,19 +472,26 @@ def get_payments_by_maintenance(event):
     payments = [convert_decimals(item) for item in response.get('Items', [])]
     total_paid = sum(p['amount'] for p in payments)
 
+    result = {
+        'payments': payments,
+        'summary': {
+            'total_payments': len(payments),
+            'total_amount': total_paid,
+            'cash_payments': len([p for p in payments if p.get('payment_method') == 'cash']),
+            'online_payments': len([p for p in payments if p.get('payment_method') == 'online'])
+        }
+    }
+    
+    if maintenance_id:
+        result['maintenance_id'] = maintenance_id
+    
+    if unit_maintenance_id:
+        result['unit_maintenance_id'] = unit_maintenance_id
+    
     return {
         'statusCode': 200,
         'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-        'body': json.dumps({
-            'maintenance_id': maintenance_id,
-            'payments': payments,
-            'summary': {
-                'total_payments': len(payments),
-                'total_amount': total_paid,
-                'cash_payments': len([p for p in payments if p.get('payment_method') == 'cash']),
-                'online_payments': len([p for p in payments if p.get('payment_method') == 'online'])
-            }
-        }, cls=DecimalEncoder)
+        'body': json.dumps(result, cls=DecimalEncoder)
     }
 
 def get_payment_by_id(event):
