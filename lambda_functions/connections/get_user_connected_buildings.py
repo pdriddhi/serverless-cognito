@@ -8,12 +8,9 @@ TABLE_CONNECTION_REQUESTS = os.environ['TABLE_CONNECTION_REQUESTS']
 TABLE_BUILDINGS = os.environ['TABLE_BUILDINGS']
 TABLE_USERUNITS = os.environ['TABLE_USERUNITS']
 MEMBERS_TABLE = os.environ['MEMBERS_TABLE']
-TABLE_USERS = os.environ['TABLE_USERS']
 
 def lambda_handler(event, context):
     try:
-        print("=== GET USER CONNECTED BUILDINGS ===")
-        
         query_params = event.get('queryStringParameters') or {}
         user_id = query_params.get('user_id')
         
@@ -39,11 +36,12 @@ def lambda_handler(event, context):
         }
         
         user_units_response = user_units_table.scan(
-            FilterExpression='user_id = :uid AND status = :status',
+            FilterExpression='user_id = :uid AND #stat = :statval',
             ExpressionAttributeValues={
                 ':uid': user_id,
-                ':status': 'active'
-            }
+                ':statval': 'active'
+            },
+            ExpressionAttributeNames={'#stat': 'status'}
         )
         
         for unit in user_units_response.get('Items', []):
@@ -67,12 +65,12 @@ def lambda_handler(event, context):
         
         pending_response = connection_requests_table.query(
             IndexName='UserIdStatusIndex',
-            KeyConditionExpression='user_id = :uid AND #status = :status',
+            KeyConditionExpression='user_id = :uid AND #stat = :statval',
             ExpressionAttributeValues={
                 ':uid': user_id,
-                ':status': 'pending'
+                ':statval': 'pending'
             },
-            ExpressionAttributeNames={'#status': 'status'}
+            ExpressionAttributeNames={'#stat': 'status'}
         )
         
         for request in pending_response.get('Items', []):
@@ -96,12 +94,12 @@ def lambda_handler(event, context):
         
         rejected_response = connection_requests_table.query(
             IndexName='UserIdStatusIndex',
-            KeyConditionExpression='user_id = :uid AND #status = :status',
+            KeyConditionExpression='user_id = :uid AND #stat = :statval',
             ExpressionAttributeValues={
                 ':uid': user_id,
-                ':status': 'rejected'
+                ':statval': 'rejected'
             },
-            ExpressionAttributeNames={'#status': 'status'}
+            ExpressionAttributeNames={'#stat': 'status'}
         )
         
         for request in rejected_response.get('Items', []):

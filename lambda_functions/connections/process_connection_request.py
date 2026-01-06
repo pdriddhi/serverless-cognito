@@ -10,6 +10,27 @@ TABLE_BUILDINGS = os.environ['TABLE_BUILDINGS']
 TABLE_USERUNITS = os.environ['TABLE_USERUNITS']
 MEMBERS_TABLE = os.environ['MEMBERS_TABLE']
 TABLE_USERS = os.environ['TABLE_USERS']
+TABLE_USER_BUILDING_ROLES = os.environ.get('TABLE_USER_BUILDING_ROLES', 'UserBuildingRoles-dev') 
+
+def check_user_is_admin(user_id, building_id):
+    """Check if user is admin for the given building"""
+    try:
+        table = dynamodb.Table(TABLE_USER_BUILDING_ROLES)
+        composite_key = f"{user_id}#{building_id}"
+        
+        response = table.get_item(
+            Key={'user_building_composite': composite_key}
+        )
+        
+        if 'Item' in response:
+            user_role = response['Item'].get('role')
+            return user_role == 'admin'
+        
+        return False
+        
+    except Exception as e:
+        print(f"Error checking user role: {str(e)}")
+        return False
 
 def lambda_handler(event, context):
     try:
@@ -30,14 +51,14 @@ def lambda_handler(event, context):
         
         body = json.loads(event.get('body', '{}'))
         action = body.get('action')  
-        admin_id = body.get('admin_id')
+        user_id = body.get('user_id')  
         
-        if not action or not admin_id:
+        if not action or not user_id:
             return {
                 'statusCode': 400,
                 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
                 'body': json.dumps({
-                    'message': 'action and admin_id are required',
+                    'message': 'action and user_id are required',
                     'success': False
                 })
             }
@@ -56,6 +77,7 @@ def lambda_handler(event, context):
         buildings_table = dynamodb.Table(TABLE_BUILDINGS)
         user_units_table = dynamodb.Table(TABLE_USERUNITS)
         members_table = dynamodb.Table(MEMBERS_TABLE) if MEMBERS_TABLE else None
+        user_building_roles_table = dynamodb.Table(TABLE_USER_BUILDING_ROLES)
         
         response = connection_requests_table.get_item(
             Key={'request_id': request_id}
@@ -72,6 +94,19 @@ def lambda_handler(event, context):
             }
         
         request_data = response['Item']
+        building_id = request_data.get('building_id')
+        
+        if not check_user_is_admin(user_id, building_id):
+            return {
+                'statusCode': 403,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({
+                    'message': 'Only building admin can process connection requests',
+                    'success': False,
+                    'user_id': user_id,
+                    'building_id': building_id
+                })
+            }
         
         if request_data.get('status') != 'pending':
             return {
@@ -86,6 +121,7 @@ def lambda_handler(event, context):
         now = datetime.utcnow().isoformat()
         
         if action == 'approve':
+            
             if members_table:
                 member_item = {
                     'user_id': request_data['user_id'],
@@ -96,7 +132,7 @@ def lambda_handler(event, context):
                     'floor': request_data['floor'],
                     'unit_number': request_data['unit_number'],
                     'member_type': 'resident',
-                    'approved_by': admin_id,
+                    'approved_by': user_id,  
                     'approved_at': now,
                     'created_at': now,
                     'updated_at': now
@@ -116,6 +152,18 @@ def lambda_handler(event, context):
             }
             user_units_table.put_item(Item=unit_item)
             
+            composite_key = f"{request_data['user_id']}#{building_id}"
+            user_building_roles_table.put_item(
+                Item={
+                    'user_building_composite': composite_key,
+                    'user_id': request_data['user_id'],
+                    'building_id': building_id,
+                    'role': 'member',
+                    'created_at': now,
+                    'updated_at': now
+                }
+            )
+            
             connection_requests_table.update_item(
                 Key={'request_id': request_id},
                 UpdateExpression='SET #status = :status, approved_at = :approved_at, '
@@ -124,7 +172,7 @@ def lambda_handler(event, context):
                 ExpressionAttributeValues={
                     ':status': 'approved',
                     ':approved_at': now,
-                    ':approved_by': admin_id,
+                    ':approved_by': user_id,  
                     ':updated_at': now
                 }
             )
@@ -150,7 +198,7 @@ def lambda_handler(event, context):
                 ExpressionAttributeValues={
                     ':status': 'rejected',
                     ':rejected_at': now,
-                    ':rejected_by': admin_id,
+                    ':rejected_by': user_id,  
                     ':updated_at': now
                 }
             )

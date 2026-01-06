@@ -63,10 +63,11 @@ def lambda_handler(event, context):
                 })
             }
         
+        # ✅ FIX: Use ExpressionAttributeNames for reserved keyword 'status'
         existing_request = connection_requests_table.scan(
             FilterExpression=(
                 'user_id = :uid AND building_id = :bid AND wing = :wing AND '
-                'floor = :floor AND unit_number = :unit AND status = :status'
+                'floor = :floor AND unit_number = :unit AND #status = :status_val'
             ),
             ExpressionAttributeValues={
                 ':uid': body['user_id'],
@@ -74,7 +75,10 @@ def lambda_handler(event, context):
                 ':wing': body['wing'],
                 ':floor': body['floor'],
                 ':unit': body['unit_number'],
-                ':status': 'pending'
+                ':status_val': 'pending'
+            },
+            ExpressionAttributeNames={
+                '#status': 'status'
             }
         )
         
