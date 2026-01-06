@@ -4,9 +4,33 @@ import os
 import traceback
 from datetime import datetime
 
-# Initialize DynamoDB
 dynamodb = boto3.resource('dynamodb')
 MAINTENANCE_TABLE = os.environ.get('TABLE_MAINTENANCE', 'MaintenanceRecords-dev')
+USER_BUILDING_ROLES_TABLE = os.environ.get('TABLE_USER_BUILDING_ROLES', 'UserBuildingRoles-dev')  
+
+def check_user_access(user_id, building_id):
+    """Check if user has access to this building (admin or member)"""
+    try:
+        if not USER_BUILDING_ROLES_TABLE:
+            print("WARNING: USER_BUILDING_ROLES_TABLE not configured, skipping access check")
+            return True
+            
+        table = dynamodb.Table(USER_BUILDING_ROLES_TABLE)
+        composite_key = f"{user_id}#{building_id}"
+        
+        response = table.get_item(Key={'user_building_composite': composite_key})
+        
+        if 'Item' in response:
+            user_role = response['Item'].get('role')
+            print(f"User has role '{user_role}' for building {building_id}")
+            return True  
+        
+        print(f"No access found for user {user_id} in building {building_id}")
+        return False
+        
+    except Exception as e:
+        print(f"Error checking user access: {str(e)}")
+        return False
 
 def get_month_name(month_num):
     """Convert month number to month name"""
@@ -38,16 +62,22 @@ def lambda_handler(event, context):
         http_method = event.get('httpMethod', 'GET')
         path = event.get('path', '')
 
-        # ===== GET /get_maintenance =====
         if http_method == 'GET' and path == '/get_maintenance':
-            # Get maintenance_id from query string
+            # Get query parameters
             query_params = event.get('queryStringParameters') or {}
             maintenance_id = query_params.get('maintenance_id')
+            user_id = query_params.get('user_id') 
 
             if not maintenance_id:
                 return build_response(400, {
                     "success": False,
                     "message": "Missing required query parameter: maintenance_id"
+                })
+
+            if not user_id:
+                return build_response(400, {
+                    "success": False,
+                    "message": "Missing required query parameter: user_id"
                 })
 
             try:
@@ -61,10 +91,19 @@ def lambda_handler(event, context):
                         "message": f"Maintenance record with ID {maintenance_id} not found"
                     })
 
-                # Build response
+                building_id = item.get('building_id')
+                
+                if not check_user_access(user_id, building_id):
+                    return build_response(403, {
+                        "success": False,
+                        "message": "You don't have access to view this maintenance record",
+                        "user_id": user_id,
+                        "building_id": building_id
+                    })
+
                 data = {
                     'maintenance_id': item.get('maintenance_id'),
-                    'building_id': item.get('building_id'),
+                    'building_id': building_id,
                     'name': item.get('name', f"Maintenance-{maintenance_id}"),
                     'description': item.get('description', ''),
                     'due_date': item.get('due_date'),
@@ -92,14 +131,12 @@ def lambda_handler(event, context):
                     "error": str(e)
                 })
 
-        # ===== OPTIONS /get_maintenance (for CORS) =====
         elif http_method == 'OPTIONS' and path == '/get_maintenance':
             return build_response(200, {
                 "success": True,
                 "message": "CORS preflight successful"
             })
 
-        # ===== Unknown endpoint =====
         else:
             return build_response(404, {
                 'success': False,

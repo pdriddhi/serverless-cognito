@@ -6,11 +6,35 @@ from datetime import datetime
 import traceback
 from boto3.dynamodb.conditions import Key
 
-# Initialize DynamoDB
 dynamodb = boto3.resource('dynamodb')
 MAINTENANCE_TABLE = os.environ.get('TABLE_MAINTENANCE', 'MaintenanceRecords-dev')
 USERS_TABLE = os.environ.get('TABLE_USERS', 'Users-dev')
 BUILDINGS_TABLE = os.environ.get('TABLE_BUILDINGS', 'Buildings-dev')
+USER_BUILDING_ROLES_TABLE = os.environ.get('TABLE_USER_BUILDING_ROLES', 'UserBuildingRoles-dev') 
+
+def check_user_is_admin(user_id, building_id):
+    """Check if user is admin for the given building"""
+    try:
+        if not USER_BUILDING_ROLES_TABLE:
+            print("WARNING: USER_BUILDING_ROLES_TABLE not configured, skipping admin check")
+            return False
+            
+        table = dynamodb.Table(USER_BUILDING_ROLES_TABLE)
+        composite_key = f"{user_id}#{building_id}"
+        
+        response = table.get_item(Key={'user_building_composite': composite_key})
+        
+        if 'Item' in response:
+            user_role = response['Item'].get('role')
+            print(f"User role for building {building_id}: {user_role}")
+            return user_role == 'admin'
+        
+        print(f"No role found for user {user_id} in building {building_id}")
+        return False
+        
+    except Exception as e:
+        print(f"Error checking user role: {str(e)}")
+        return False
 
 def extract_month_year(due_date):
     """Extract month and year from due_date string"""
@@ -47,14 +71,11 @@ def lambda_handler(event, context):
         http_method = event.get('httpMethod', 'POST')
         path = event.get('path', '')
 
-        # ===== POST /maintenance =====
         if http_method == 'POST' and path == '/maintenance':
             try:
-                # Parse request body
                 body = json.loads(event['body']) if isinstance(event.get('body'), str) else event.get('body', {})
                 print(f"POST body: {body}")
 
-                # Validate required fields
                 required_fields = ['building_id', 'due_date', 'user_id', 'wings']
                 missing_fields = [field for field in required_fields if not body.get(field)]
                 
@@ -65,7 +86,17 @@ def lambda_handler(event, context):
                         "missing_fields": missing_fields
                     })
 
-                # Validate wings
+                building_id = body["building_id"]
+                user_id = body["user_id"]
+
+                if not check_user_is_admin(user_id, building_id):
+                    return build_response(403, {
+                        "success": False,
+                        "message": "Only building admin can create maintenance records",
+                        "user_id": user_id,
+                        "building_id": building_id
+                    })
+
                 wings = body.get("wings", [])
                 if not isinstance(wings, list):
                     return build_response(400, {
@@ -73,39 +104,33 @@ def lambda_handler(event, context):
                         "message": "wings must be a list"
                     })
                 
-                # ===== Validate user_id =====
                 users_table = dynamodb.Table(USERS_TABLE)
-                user_response = users_table.get_item(Key={"user_id": body["user_id"]})
+                user_response = users_table.get_item(Key={"user_id": user_id})
                 if "Item" not in user_response:
                     return build_response(403, {
                         "success": False,
-                        "message": f"user_id {body['user_id']} does not exist or is invalid"
+                        "message": f"user_id {user_id} does not exist or is invalid"
                     })
 
-                # ===== Validate building_id =====
                 buildings_table = dynamodb.Table(BUILDINGS_TABLE)
-                building_response = buildings_table.get_item(Key={"building_id": body["building_id"]})
+                building_response = buildings_table.get_item(Key={"building_id": building_id})
                 if "Item" not in building_response:
                     return build_response(403, {
                         "success": False,
-                        "message": f"building_id {body['building_id']} does not exist or is invalid"
+                        "message": f"building_id {building_id} does not exist or is invalid"
                     })
                 
-                # Check if wings list is empty (means all wings)
                 is_all_wings = len(wings) == 0
                 
-                # Extract month and year from due_date
                 due_date = body["due_date"]
                 month, year = extract_month_year(due_date)
                 
-                # Generate maintenance ID
                 maintenance_id = f"MAINT-{uuid.uuid4().hex[:8].upper()}"
 
-                # Prepare item to store in DynamoDB
                 item = {
                     "maintenance_id": maintenance_id,
-                    "building_id": body["building_id"],
-                    "user_id": body["user_id"],
+                    "building_id": building_id,
+                    "user_id": user_id,
                     "due_date": due_date,
                     "month": month,
                     "year": year,
@@ -118,11 +143,9 @@ def lambda_handler(event, context):
                     "updated_at": datetime.utcnow().isoformat()
                 }
 
-                # Write to DynamoDB
                 table = dynamodb.Table(MAINTENANCE_TABLE)
                 table.put_item(Item=item)
 
-                # Return success response
                 return build_response(201, {
                     "success": True,
                     "message": "Maintenance record created successfully",
@@ -144,14 +167,12 @@ def lambda_handler(event, context):
                     "error": str(e)
                 })
 
-        # ===== OPTIONS /maintenance (for CORS) =====
         elif http_method == 'OPTIONS' and path == '/maintenance':
             return build_response(200, {
                 "success": True,
                 "message": "CORS preflight successful"
             })
 
-        # ===== Unknown endpoint =====
         else:
             return build_response(404, {
                 'success': False,

@@ -8,10 +8,12 @@ from decimal import Decimal
 
 TABLE_BUILDINGS = os.environ['TABLE_BUILDINGS']
 USERS_TABLE = os.environ.get('USERS_TABLE')
+USER_BUILDING_ROLES_TABLE = os.environ.get('TABLE_USER_BUILDING_ROLES') 
 
 dynamodb = boto3.resource('dynamodb')
 buildings_table = dynamodb.Table(TABLE_BUILDINGS)
 users_table = dynamodb.Table(USERS_TABLE) if USERS_TABLE else None
+user_building_roles_table = dynamodb.Table(USER_BUILDING_ROLES_TABLE) if USER_BUILDING_ROLES_TABLE else None  
 
 def validate_user(user_id):
     """
@@ -30,6 +32,72 @@ def validate_user(user_id):
         return user_exists
     except Exception as e:
         print(f"Error validating user {user_id}: {str(e)}")
+        traceback.print_exc()
+        return False
+
+def assign_admin_role_to_user(user_id, building_id):
+    """
+    Assign admin role to user for the building in UserBuildingRoles table
+    """
+    if not USER_BUILDING_ROLES_TABLE or not user_building_roles_table:
+        print("Warning: TABLE_USER_BUILDING_ROLES not configured, skipping role assignment")
+        return False
+    
+    try:
+        composite_key = f"{user_id}#{building_id}"
+        current_time = datetime.now().isoformat()
+        
+        # Check if role already exists
+        try:
+            existing_role = user_building_roles_table.get_item(
+                Key={'user_building_composite': composite_key}
+            )
+            
+            if 'Item' in existing_role:
+                # Update existing role to admin
+                user_building_roles_table.update_item(
+                    Key={'user_building_composite': composite_key},
+                    UpdateExpression='SET #role = :role, updated_at = :updated',
+                    ExpressionAttributeNames={'#role': 'role'},
+                    ExpressionAttributeValues={
+                        ':role': 'admin',
+                        ':updated': current_time
+                    }
+                )
+                print(f"Updated existing role to 'admin' for user {user_id} in building {building_id}")
+            else:
+                # Create new admin role
+                user_building_roles_table.put_item(
+                    Item={
+                        'user_building_composite': composite_key,
+                        'user_id': user_id,
+                        'building_id': building_id,
+                        'role': 'admin',
+                        'created_at': current_time,
+                        'updated_at': current_time
+                    }
+                )
+                print(f"Assigned 'admin' role to user {user_id} for building {building_id}")
+                
+        except Exception as role_check_error:
+            print(f"Error checking existing role: {str(role_check_error)}")
+            # Create new role anyway
+            user_building_roles_table.put_item(
+                Item={
+                    'user_building_composite': composite_key,
+                    'user_id': user_id,
+                    'building_id': building_id,
+                    'role': 'admin',
+                    'created_at': current_time,
+                    'updated_at': current_time
+                }
+            )
+            print(f"Assigned 'admin' role to user {user_id} for building {building_id}")
+        
+        return True
+        
+    except Exception as role_error:
+        print(f"Error assigning admin role: {str(role_error)}")
         traceback.print_exc()
         return False
 
@@ -324,6 +392,12 @@ def lambda_handler(event, context):
             buildings_table.put_item(Item=building_item)
             print(f"Building created: {building_id} with code: {building_code} by user: {user_id}")
             
+            role_assigned = assign_admin_role_to_user(user_id, building_id)
+            if role_assigned:
+                print(f"Successfully assigned 'admin' role to user {user_id} for building {building_id}")
+            else:
+                print(f"Warning: Could not assign admin role to user {user_id} for building {building_id}")
+            
         except Exception as e:
             print(f"Error saving building: {str(e)}")
             return {
@@ -339,7 +413,6 @@ def lambda_handler(event, context):
                 })
             }
 
-        
         response_data = {
             'user_id': user_id,
             'name': building_name,
@@ -364,7 +437,8 @@ def lambda_handler(event, context):
                     'total_wings': len(wings),
                     'total_units_of_building': total_units_of_building,
                     'status': 'active',
-                    'created_at': current_time
+                    'created_at': current_time,
+                    'user_role': 'admin'
                 }
             })
         }

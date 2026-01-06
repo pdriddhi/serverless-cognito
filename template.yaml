@@ -465,6 +465,8 @@ Resources:
             TableName: !Ref BuildingsTable
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserBuildingRolesTable      
       Events:
         AddBuildingAPI:
           Type: Api
@@ -576,11 +578,14 @@ Resources:
         Variables:
           TABLE_USERUNITS: !Ref UserUnitsTable
           TABLE_BUILDINGS: !Ref BuildingsTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref UserUnitsTable
         - DynamoDBReadPolicy:
             TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable    
       Events:
         GetMyUnitsAPI:
           Type: Api
@@ -598,11 +603,14 @@ Resources:
         Variables:
           TABLE_USERUNITS: !Ref UserUnitsTable
           USERS_TABLE: !Ref UsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref UserUnitsTable
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable     
       Events:
         GetUserUnitsAPI:
           Type: Api
@@ -803,9 +811,12 @@ Resources:
       Environment:
         Variables:
           TABLE_MAINTENANCE: !Ref MaintenanceTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref MaintenanceTable
+        - DynamoDBReadPolicy:                                     
+            TableName: !Ref UserBuildingRolesTable    
       Events:
         GetMaintenanceAPI:
           Type: Api
@@ -822,9 +833,12 @@ Resources:
       Environment:
         Variables:
           TABLE_MAINTENANCE: !Ref MaintenanceTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref MaintenanceTable
+        - DynamoDBReadPolicy:                                     
+            TableName: !Ref UserBuildingRolesTable    
       Events:
         GetBuildingMaintenanceAPI:
           Type: Api
@@ -844,11 +858,14 @@ Resources:
       Variables:
         TABLE_MAINTENANCE: !Ref MaintenanceTable
         TABLE_PAYMENT: !Ref PaymentTable
+        TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
     Policies:
       - DynamoDBCrudPolicy:
           TableName: !Ref MaintenanceTable
       - DynamoDBReadPolicy:
           TableName: !Ref PaymentTable
+      - DynamoDBReadPolicy:                                     
+          TableName: !Ref UserBuildingRolesTable     
     Events:
       DeleteMaintenanceAPI:
         Type: Api

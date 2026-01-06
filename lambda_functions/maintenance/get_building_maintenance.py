@@ -5,9 +5,33 @@ import traceback
 from boto3.dynamodb.conditions import Key
 from calendar import month_name
 
-# Initialize DynamoDB
 dynamodb = boto3.resource('dynamodb')
 MAINTENANCE_TABLE = os.environ.get('TABLE_MAINTENANCE', 'MaintenanceRecords-dev')
+USER_BUILDING_ROLES_TABLE = os.environ.get('TABLE_USER_BUILDING_ROLES', 'UserBuildingRoles-dev')  # ADD THIS
+
+def check_user_access(user_id, building_id):
+    """Check if user has access to this building (admin or member)"""
+    try:
+        if not USER_BUILDING_ROLES_TABLE:
+            print("WARNING: USER_BUILDING_ROLES_TABLE not configured, skipping access check")
+            return True
+            
+        table = dynamodb.Table(USER_BUILDING_ROLES_TABLE)
+        composite_key = f"{user_id}#{building_id}"
+        
+        response = table.get_item(Key={'user_building_composite': composite_key})
+        
+        if 'Item' in response:
+            user_role = response['Item'].get('role')
+            print(f"User has role '{user_role}' for building {building_id}")
+            return True  # User has some role (admin, member, etc.)
+        
+        print(f"No access found for user {user_id} in building {building_id}")
+        return False
+        
+    except Exception as e:
+        print(f"Error checking user access: {str(e)}")
+        return False
 
 def get_month_name(month_number):
     """Convert month number to month name, e.g., 1 -> January"""
@@ -48,11 +72,27 @@ def lambda_handler(event, context):
         if http_method == 'GET':
             query_params = event.get('queryStringParameters', {}) or {}
             building_id = query_params.get('building_id')
+            user_id = query_params.get('user_id')  # ADD THIS
 
             if not building_id:
                 return build_response(400, {
                     "success": False,
                     "message": "building_id is required"
+                })
+
+            if not user_id:
+                return build_response(400, {
+                    "success": False,
+                    "message": "user_id is required for access check"
+                })
+
+            # ===== Check if user has access to this building =====
+            if not check_user_access(user_id, building_id):
+                return build_response(403, {
+                    "success": False,
+                    "message": "You don't have access to view maintenance records for this building",
+                    "user_id": user_id,
+                    "building_id": building_id
                 })
 
             try:
