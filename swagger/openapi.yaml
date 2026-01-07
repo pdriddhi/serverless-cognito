@@ -8,133 +8,75 @@ servers:
   - url: https://maint.featsinnovations.in
 
 paths:
-
-  /register:
-    post:
-      summary: Register a new user
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - name
-                - mobile
-                - password
-              properties:
-                name:
-                  type: string
-                  example: "Riddhi Sheladiya"
-                mobile:
-                  type: string
-                  example: "9876543210"
-                  minLength: 10
-                  maxLength: 10
-                password:
-                  type: string
-                  minLength: 6
-                  example: "Pass@123"
-                user_type:
-                  type: string
-                  example: "resident"
-      responses:
-        "200":
-          description: Registration successful
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  message:
-                    type: string
-                  user:
-                    type: object
-                    properties:
-                      user_id:
-                        type: string
-                      name:
-                        type: string
-                      mobile:
-                        type: string
-                      user_type:
-                        type: string
-                      status:
-                        type: string
-        "400":
-          description: Validation error or mobile already registered
-        "500":
-          description: Server error or Cognito failure
-
+  # ==================== AUTHENTICATION ====================
   /login:
     post:
       summary: User Login
+      description: Authenticate user with mobile and password
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required:
-                - mobile
-                - password
               properties:
                 mobile:
                   type: string
                   example: "9876543210"
-                  minLength: 10
-                  maxLength: 10
                 password:
                   type: string
-                  example: "Password@123"
+                  example: "SecurePass123"
       responses:
-        "200":
+        '200':
           description: Login successful
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  message:
-                    type: string
-                  user:
-                    type: object
-                    properties:
-                      user_id:
-                        type: string
-                      name:
-                        type: string
-                      mobile:
-                        type: string
-                      user_type:
-                        type: string
-                  tokens:
-                    type: object
-                    properties:
-                      id_token:
-                        type: string
-                      access_token:
-                        type: string
-                      refresh_token:
-                        type: string
-                      expires_in:
-                        type: integer
-        "400":
-          description: Validation error (missing or invalid input)
-        "401":
-          description: Invalid mobile number or password
-        "404":
+        '400':
+          description: Bad request
+        '401':
+          description: Invalid credentials
+        '404':
           description: User not found
-        "500":
+        '500':
           description: Server error
 
+  /register:
+    post:
+      summary: Register User
+      description: Create new user account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: "John Doe"
+                mobile:
+                  type: string
+                  example: "9876543210"
+                password:
+                  type: string
+                  example: "SecurePass123"
+                building_id:
+                  type: string
+                  example: "building_001"
+                role:
+                  type: string
+                  example: "member"
+      responses:
+        '200':
+          description: Registration successful
+        '400':
+          description: Bad request
+        '500':
+          description: Server error
+
+  # ==================== BUILDING MANAGEMENT ====================
   /add_building:
     post:
-      summary: Add new building
+      summary: Create a new building
+      description: Create a new building with wings and assign admin role to creator
       requestBody:
         required: true
         content:
@@ -149,128 +91,10 @@ paths:
               properties:
                 name:
                   type: string
-                  example: "Green Heights"
+                  example: "Sunrise Apartments"
                 user_id:
                   type: string
-                  example: "USR-1234567890"
-                wings:
-                  type: array
-                  items:
-                    type: string
-                  example: ["A", "B"]
-                wing_details:
-                  type: object
-                  additionalProperties:
-                    type: object
-                    required:
-                      - total_floors
-                      - units_per_floor
-                    properties:
-                      total_floors:
-                        type: integer
-                        example: 5
-                      units_per_floor:
-                        type: integer
-                        example: 4
-      responses:
-        "200":
-          description: Building created successfully
-        "400":
-          description: Bad request (validation error)
-        "500":
-          description: Internal server error
-
-  /get_building:
-    get:
-      summary: Get building details
-      parameters:
-        - name: building_id
-          in: query
-          required: true
-          schema:
-            type: string
-          example: "BLD-AB12CD34"
-      responses:
-        "200":
-          description: Building details retrieved successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Building details retrieved successfully"
-                  building:
-                    type: object
-                    properties:
-                      building_id:
-                        type: string
-                        example: "BLD-AB12CD34"
-                      building_name:
-                        type: string
-                        example: "Green Heights"
-                      user_id:
-                        type: string
-                        example: "USR-1234567890"
-                      status:
-                        type: string
-                        example: "active"
-                      created_at:
-                        type: string
-                        example: "2024-12-01T10:30:00"
-                      updated_at:
-                        type: string
-                        example: "2024-12-01T10:30:00"
-                      total_units_of_building:
-                        type: integer
-                        example: 26
-                      wings:
-                        type: array
-                        items:
-                          type: string
-                        example: ["A", "B"]
-                      wing_details:
-                        type: object
-                        additionalProperties:
-                          type: object
-                          properties:
-                            total_floors:
-                              type: integer
-                              example: 5
-                            units_per_floor:
-                              type: integer
-                              example: 4
-                            total_units:
-                              type: integer
-                              example: 20
-        "400":
-          description: Missing or invalid building_id
-        "404":
-          description: Building not found
-        "500":
-          description: Internal server error
-
-  /update_building:
-    patch:
-      summary: Update building info
-      parameters:
-        - name: building_id
-          in: query
-          required: true
-          schema:
-            type: string
-          example: "BLD-AB12CD34"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                building_name:
-                  type: string
-                  example: "Green Heights Phase 2"
+                  example: "user_9876543210"
                 wings:
                   type: array
                   items:
@@ -278,68 +102,142 @@ paths:
                   example: ["A", "B", "C"]
                 wing_details:
                   type: object
-                  additionalProperties:
-                    type: object
-                    properties:
-                      total_floors:
-                        type: integer
-                        example: 5
-                      units_per_floor:
-                        type: integer
-                        example: 4
-                      total_units:
-                        type: integer
-                        example: 20
+                  example:
+                    A:
+                      total_floors: 5
+                      units_per_floor: 4
+                    B:
+                      total_floors: 5
+                      units_per_floor: 4
+      responses:
+        '200':
+          description: Building created successfully
+        '400':
+          description: Bad request
+        '404':
+          description: User not found
+        '500':
+          description: Server error
+
+  /get_building:
+    get:
+      summary: Get building details
+      description: Get building details by building_id or building_code
+      parameters:
+        - name: building_id
+          in: query
+          schema:
+            type: string
+          example: "BLD-ABC123DEF"
+        - name: building_code
+          in: query
+          schema:
+            type: string
+          example: "SUN123"
+      responses:
+        '200':
+          description: Building details retrieved
+        '400':
+          description: Missing parameters
+        '404':
+          description: Building not found
+        '500':
+          description: Server error
+
+  /get_user_buildings:
+    get:
+      summary: Get buildings for a user
+      description: Get all buildings created by a specific user
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "user_9876543210"
+      responses:
+        '200':
+          description: Buildings retrieved
+        '400':
+          description: Missing user_id
+        '404':
+          description: No buildings found
+        '500':
+          description: Server error
+
+  /update_building:
+    patch:
+      summary: Update building details
+      description: Update building information using PATCH method
+      parameters:
+        - name: building_id
+          in: query
+          schema:
+            type: string
+          example: "BLD-ABC123DEF"
+        - name: user_id
+          in: query
+          schema:
+            type: string
+          example: "user_9876543210"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                building_id:
+                  type: string
+                user_id:
+                  type: string
+                name:
+                  type: string
+                wings:
+                  type: array
+                  items:
+                    type: string
+                wing_details:
+                  type: object
                 status:
                   type: string
-                  example: "active"
+                  enum: [active, inactive]
       responses:
-        "200":
-          description: Building updated successfully
-        "400":
-          description: Invalid request or no fields to update
-        "404":
-          description: Building not found
-        "500":
-          description: Internal server error
+        '200':
+          description: Building updated
+        '400':
+          description: Bad request
+        '404':
+          description: Building or User not found
+        '500':
+          description: Server error
 
   /delete_building:
     delete:
       summary: Delete a building
+      description: Delete building by building_id
       parameters:
         - name: building_id
           in: query
           required: true
           schema:
             type: string
-          example: "BLD-AB12CD34"
+          example: "BLD-ABC123DEF"
       responses:
-        "200":
-          description: Building deleted successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: Building deleted successfully
-                  building_id:
-                    type: string
-                    example: BLD-AB12CD34
-                  building_name:
-                    type: string
-                    example: Green Heights
-        "400":
-          description: building_id missing
-        "404":
+        '200':
+          description: Building deleted
+        '400':
+          description: Missing building_id
+        '404':
           description: Building not found
-        "500":
-          description: Internal server error
+        '500':
+          description: Server error
 
+  # ==================== UNIT MANAGEMENT ====================
   /assign_unit:
     post:
-      summary: Assign unit to a user
+      summary: Assign unit to user
+      description: Admin assigns a unit to a user
       requestBody:
         required: true
         content:
@@ -355,71 +253,91 @@ paths:
               properties:
                 user_id:
                   type: string
-                  example: "USR-1234567890"
+                  example: "user_9876543210"
                 building_id:
                   type: string
-                  example: "BLD-AB12CD34"
+                  example: "BLD-ABC123DEF"
                 unit_number:
                   type: string
-                  example: "A-203"
+                  example: "101"
                 floor:
                   type: integer
-                  example: 2
+                  example: 1
                 wings:
                   type: string
                   example: "A"
                 unit_type:
                   type: string
                   example: "2BHK"
-                  default: "2BHK"
                 area_sqft:
-                  type: integer
+                  type: number
                   example: 850
-                  default: 0
                 rent_amount:
                   type: number
                   example: 15000
-                  default: 0
       responses:
-        "201":
+        '201':
           description: Unit assigned successfully
-        "400":
-          description: Missing or invalid input data
-        "404":
-          description: User or Building not found
-        "500":
-          description: Internal server error
+        '400':
+          description: Bad request
+        '403':
+          description: Not authorized
+        '404':
+          description: User/Building not found
+        '500':
+          description: Server error
 
   /get_my_units:
     get:
-      summary: Get units assigned to a user
+      summary: Get user's assigned units
+      description: Get all units assigned to the logged-in user
       parameters:
         - name: user_id
           in: query
           required: true
           schema:
             type: string
-          example: "USR-1234567890"
+          example: "user_9876543210"
       responses:
-        "200":
-          description: Units fetched successfully
-        "400":
-          description: Missing user_id parameter
-        "500":
-          description: Internal server error
+        '200':
+          description: Units retrieved
+        '400':
+          description: Missing user_id
+        '500':
+          description: Server error
 
   /user_units_get:
     get:
-      summary: Get all users with assigned units
+      summary: Get all units in a building
+      description: Admin can view all units in their building
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "user_9876543210"
+        - name: building_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "BLD-ABC123DEF"
       responses:
-        "200":
-          description: List of all assigned units
-        "500":
-          description: Internal server error
+        '200':
+          description: Building units retrieved
+        '400':
+          description: Missing parameters
+        '403':
+          description: Not admin
+        '500':
+          description: Server error
 
+  # ==================== MAINTENANCE MANAGEMENT ====================
   /maintenance:
     post:
-      summary: Create maintenance bill
+      summary: Create maintenance record
+      description: Admin creates a new maintenance record
       requestBody:
         required: true
         content:
@@ -434,86 +352,165 @@ paths:
               properties:
                 building_id:
                   type: string
+                  example: "BLD-ABC123DEF"
                 user_id:
                   type: string
+                  example: "user_9876543210"
                 due_date:
                   type: string
+                  format: date-time
+                  example: "2024-12-31T23:59:59Z"
                 wings:
                   type: array
                   items:
                     type: string
+                  example: ["A", "B"]
                 description:
                   type: string
+                  example: "Monthly maintenance for December"
                 bill_items:
                   type: array
                   items:
                     type: object
       responses:
-        "201":
-          description: Maintenance record created successfully
-        "400":
-          description: Missing or invalid request data
-        "500":
-          description: Internal server error
+        '201':
+          description: Maintenance created successfully
+        '400':
+          description: Missing or invalid fields
+        '403':
+          description: Not admin
+        '500':
+          description: Server error
 
-  /maintenance/by-building:
+  /get_building_maintenance:
     get:
-      summary: Get maintenance bills for a building
+      summary: Get all maintenance for a building
+      description: Get maintenance records for a building (admin/member access)
       parameters:
         - name: building_id
           in: query
           required: true
           schema:
             type: string
+          example: "BLD-ABC123DEF"
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "user_9876543210"
       responses:
-        "200":
-          description: Maintenance records fetched successfully
-        "400":
-          description: Missing building_id
-        "500":
-          description: Internal server error
+        '200':
+          description: Maintenance records retrieved
+        '400':
+          description: Missing parameters
+        '403':
+          description: No access to building
+        '500':
+          description: Server error
 
-  /maintenance/details:
+  /get_maintenance:
     get:
-      summary: Get maintenance bill details
+      summary: Get maintenance record by ID
+      description: Get specific maintenance record details
       parameters:
         - name: maintenance_id
           in: query
           required: true
           schema:
             type: string
+          example: "MAINT-ABC123DEF"
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "user_9876543210"
       responses:
-        "200":
-          description: Maintenance bill details retrieved successfully
-        "400":
-          description: Missing maintenance_id
-        "404":
-          description: Maintenance record not found
-        "500":
-          description: Internal server error
+        '200':
+          description: Maintenance details retrieved
+        '400':
+          description: Missing parameters
+        '403':
+          description: No access
+        '404':
+          description: Maintenance not found
+        '500':
+          description: Server error
 
-  /maintenance/delete:
+  /delete_maintenance:
     delete:
-      summary: Delete maintenance bill
+      summary: Delete maintenance record
+      description: Admin deletes a maintenance record by ID
       parameters:
         - name: maintenance_id
           in: query
           required: true
           schema:
             type: string
+          example: "MAINT-ABC123DEF"
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "user_9876543210"
       responses:
-        "200":
-          description: Maintenance bill deleted successfully
-        "400":
-          description: Cannot delete due to existing payments
-        "404":
-          description: Maintenance record not found
-        "500":
-          description: Internal server error
+        '200':
+          description: Maintenance deleted successfully
+        '400':
+          description: Missing parameters
+        '403':
+          description: Not admin
+        '404':
+          description: Maintenance not found
+        '500':
+          description: Server error
 
-  /payment/process:
+  # ==================== UNIT MAINTENANCE BILLS ====================
+  /unit_maintenance_bill:
+    get:
+      summary: Get unit maintenance bills
+      description: Get maintenance bills for units
+      parameters:
+        - name: unit_maintenance_id
+          in: query
+          schema:
+            type: string
+          example: "UNIT-BILL-ABC123"
+        - name: building_id
+          in: query
+          schema:
+            type: string
+        - name: user_id
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, paid, overdue]
+        - name: payment_status
+          in: query
+          schema:
+            type: string
+            enum: [unpaid, paid, pending]
+      responses:
+        '200':
+          description: Maintenance bills retrieved
+        '400':
+          description: Bad request
+        '403':
+          description: Access denied
+        '404':
+          description: Bill not found
+        '500':
+          description: Server error
+
     post:
-      summary: Process payment (cash or online)
+      summary: Create unit maintenance bill
+      description: Admin creates maintenance bill for a unit
       requestBody:
         required: true
         content:
@@ -521,61 +518,145 @@ paths:
             schema:
               type: object
               required:
-                - payment_method
+                - building_id
                 - maintenance_id
-                - amount
+                - user_id
+                - wings
+                - floor
+                - unit_no
+                - bill_items
               properties:
-                payment_method:
+                building_id:
                   type: string
                 maintenance_id:
                   type: string
-                amount:
-                  type: number
+                user_id:
+                  type: string
+                wings:
+                  type: string
+                floor:
+                  type: integer
+                unit_no:
+                  type: string
+                bill_items:
+                  type: array
+                  items:
+                    type: object
       responses:
-        "201":
-          description: Payment successful
-        "400":
-          description: Validation error
-        "404":
-          description: Maintenance not found
-        "500":
+        '201':
+          description: Bill created
+        '400':
+          description: Bad request
+        '403':
+          description: Not admin
+        '500':
           description: Server error
 
-  /payment/by-maintenance:
-    get:
-      summary: Get all payments for a maintenance bill
+  /unit_maintenance_bill/{id}:
+    patch:
+      summary: Update maintenance bill
+      description: Update unit maintenance bill
       parameters:
-        - name: maintenance_id
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Unit maintenance bill ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: string
+                status:
+                  type: string
+                payment_status:
+                  type: string
+                bill_items:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '200':
+          description: Bill updated
+        '400':
+          description: Bad request
+        '403':
+          description: Not admin
+        '404':
+          description: Bill not found
+        '500':
+          description: Server error
+
+    delete:
+      summary: Delete maintenance bill
+      description: Delete unit maintenance bill
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Unit maintenance bill ID
+      responses:
+        '200':
+          description: Bill deleted
+        '400':
+          description: Bad request
+        '403':
+          description: Not admin
+        '404':
+          description: Bill not found
+        '500':
+          description: Server error
+
+  # ==================== UNIT AVAILABILITY ====================
+  /check_unit_availability:
+    get:
+      summary: Check if unit is available
+      description: Check unit availability for assignment
+      parameters:
+        - name: building_id
           in: query
           required: true
           schema:
             type: string
-      responses:
-        "200":
-          description: Payment list returned
-        "400":
-          description: maintenance_id missing
-        "500":
-          description: Server error
-
-  /payment/details:
-    get:
-      summary: Get payment details by payment ID
-      parameters:
-        - name: payment_id
+        - name: user_id
           in: query
           required: true
           schema:
             type: string
+        - name: wing
+          in: query
+          schema:
+            type: string
+        - name: floor
+          in: query
+          schema:
+            type: integer
+        - name: unit_number
+          in: query
+          schema:
+            type: string
       responses:
-        "200":
-          description: Payment details
-        "404":
-          description: Payment not found
+        '200':
+          description: Unit availability status
+        '400':
+          description: Bad request
+        '403':
+          description: Access denied
+        '500':
+          description: Server error
 
-  /payment/verify:
+  # ==================== MEMBERS MANAGEMENT ====================
+  /members:
     post:
-      summary: Verify payment using transaction ID
+      summary: Create a new member
+      description: Add a new member to a building
       requestBody:
         required: true
         content:
@@ -583,29 +664,470 @@ paths:
             schema:
               type: object
               required:
-                - transaction_id
+                - user_id
+                - building_id
+                - name
+                - mobile_no
               properties:
-                transaction_id:
+                user_id:
                   type: string
+                  example: "user_9876543210"
+                building_id:
+                  type: string
+                  example: "BLD-ABC123DEF"
+                name:
+                  type: string
+                  example: "John Doe"
+                mobile_no:
+                  type: string
+                  example: "9876543210"
+                wings:
+                  type: string
+                  example: "A"
+                floor:
+                  type: string
+                  example: "5"
+                unit_number:
+                  type: string
+                  example: "501"
+                email:
+                  type: string
+                  format: email
+                  example: "john@example.com"
+                emergency_contact:
+                  type: string
+                  example: "9876543211"
       responses:
-        "200":
-          description: Payment verified
-        "404":
-          description: Transaction not found
-        "500":
+        '201':
+          description: Member created successfully
+        '400':
+          description: Missing fields or duplicate member
+        '404':
+          description: User not found
+        '500':
           description: Server error
 
-  /payment/receipt:
     get:
-      summary: Generate payment receipt
+      summary: Get all members
+      description: Get all members or filter by building
       parameters:
-        - name: payment_id
+        - name: building_id
+          in: query
+          schema:
+            type: string
+          example: "BLD-ABC123DEF"
+      responses:
+        '200':
+          description: Members list retrieved
+        '500':
+          description: Server error
+
+  /members/{user_id}:
+    get:
+      summary: Get member by ID
+      description: Get member details by user_id
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "user_9876543210"
+      responses:
+        '200':
+          description: Member details retrieved
+        '404':
+          description: Member not found
+        '500':
+          description: Server error
+
+    patch:
+      summary: Update member details
+      description: Update member information
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "user_9876543210"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: "John Doe Updated"
+                mobile_no:
+                  type: string
+                  example: "9876543222"
+                wings:
+                  type: string
+                  example: "B"
+                floor:
+                  type: string
+                  example: "6"
+                unit_number:
+                  type: string
+                  example: "601"
+                building_id:
+                  type: string
+                  example: "BLD-ABC123DEF"
+      responses:
+        '200':
+          description: Member updated successfully
+        '400':
+          description: Invalid input
+        '404':
+          description: Member not found
+        '500':
+          description: Server error
+
+    delete:
+      summary: Delete member
+      description: Remove member from building
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "user_9876543210"
+      responses:
+        '200':
+          description: Member deleted successfully
+        '404':
+          description: Member not found
+        '500':
+          description: Server error
+
+  # ==================== CONNECTION MANAGEMENT ====================
+  /connection_requests:
+    post:
+      summary: Submit connection request
+      description: User submits a request to connect to a building unit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - user_id
+                - user_name
+                - user_mobile
+                - building_id
+                - wing
+                - floor
+                - unit_number
+              properties:
+                user_id:
+                  type: string
+                  example: "user_9876543210"
+                user_name:
+                  type: string
+                  example: "John Doe"
+                user_mobile:
+                  type: string
+                  example: "9876543210"
+                building_id:
+                  type: string
+                  example: "BLD-ABC123DEF"
+                wing:
+                  type: string
+                  example: "A"
+                floor:
+                  type: integer
+                  example: 5
+                unit_number:
+                  type: string
+                  example: "501"
+      responses:
+        '201':
+          description: Request submitted successfully
+        '400':
+          description: Missing fields or duplicate request
+        '404':
+          description: Building not found
+        '500':
+          description: Server error
+
+  /connection_requests/{request_id}:
+    post:
+      summary: Process connection request
+      description: Admin approves or rejects a connection request
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "REQ-ABC123DEF"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - action
+                - user_id
+              properties:
+                action:
+                  type: string
+                  enum: [approve, reject]
+                  example: "approve"
+                user_id:
+                  type: string
+                  example: "admin_user_123"
+      responses:
+        '200':
+          description: Request processed successfully
+        '400':
+          description: Invalid action or already processed
+        '403':
+          description: Not admin
+        '404':
+          description: Request not found
+        '500':
+          description: Server error
+
+  /connection_requests/pending:
+    get:
+      summary: Get pending connection requests
+      description: Admin views pending connection requests for their building(s)
+      parameters:
+        - name: admin_id
+          in: query
+          schema:
+            type: string
+          example: "admin_user_123"
+        - name: building_id
+          in: query
+          schema:
+            type: string
+          example: "BLD-ABC123DEF"
+      responses:
+        '200':
+          description: Pending requests retrieved
+        '400':
+          description: Missing parameters
+        '500':
+          description: Server error
+
+  /user_connections:
+    get:
+      summary: Get user connections status
+      description: User views their connected buildings and pending/rejected requests
+      parameters:
+        - name: user_id
           in: query
           required: true
           schema:
             type: string
+          example: "user_9876543210"
       responses:
-        "200":
-          description: Receipt generated
-        "404":
+        '200':
+          description: User connections retrieved
+        '400':
+          description: Missing user_id
+        '500':
+          description: Server error
+
+  # ==================== PAYMENT MANAGEMENT ====================
+  /payment/process:
+    post:
+      summary: Process payment
+      description: Process cash or online payment for maintenance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/CashPayment'
+                - $ref: '#/components/schemas/OnlinePayment'
+      responses:
+        '201':
+          description: Payment processed successfully
+        '400':
+          description: Bad request or validation failed
+        '500':
+          description: Server error
+
+  /payment:
+    get:
+      summary: Get payment details
+      description: Get payment by ID or payments by maintenance ID
+      parameters:
+        - name: payment_id
+          in: query
+          schema:
+            type: string
+          description: Get specific payment by ID
+        - name: maintenance_id
+          in: query
+          schema:
+            type: string
+          description: Get all payments for a maintenance ID
+        - name: unit_maintenance_id
+          in: query
+          schema:
+            type: string
+          description: Get all payments for a unit maintenance ID
+      responses:
+        '200':
+          description: Payment details retrieved
+        '400':
+          description: Missing parameters
+        '404':
           description: Payment not found
+        '500':
+          description: Server error
+
+components:
+  schemas:
+    CashPayment:
+      type: object
+      required:
+        - user_id
+        - building_id
+        - amount
+        - payment_method
+      properties:
+        payment_method:
+          type: string
+          example: "cash"
+          enum: [cash]
+        user_id:
+          type: string
+          example: "user_9876543210"
+        building_id:
+          type: string
+          example: "BLD-ABC123DEF"
+        amount:
+          type: number
+          example: 1500.00
+        maintenance_id:
+          type: string
+          example: "MAINT-ABC123DEF"
+        unit_maintenance_id:
+          type: string
+          example: "UNIT-BILL-ABC123"
+
+    OnlinePayment:
+      type: object
+      required:
+        - user_id
+        - building_id
+        - amount
+        - payment_method
+        - card_number
+        - card_holder
+        - expiry_date
+        - cvv
+      properties:
+        payment_method:
+          type: string
+          example: "online"
+          enum: [online]
+        user_id:
+          type: string
+        building_id:
+          type: string
+        amount:
+          type: number
+        card_number:
+          type: string
+          example: "4111111111111111"
+        card_holder:
+          type: string
+          example: "John Doe"
+        expiry_date:
+          type: string
+          example: "12/25"
+        cvv:
+          type: string
+          example: "123"
+        maintenance_id:
+          type: string
+        unit_maintenance_id:
+          type: string
+
+    PaymentResponse:
+      type: object
+      properties:
+        payment_id:
+          type: string
+          example: "PAY-ABC123DEF"
+        building_id:
+          type: string
+        user_id:
+          type: string
+        amount:
+          type: number
+        payment_method:
+          type: string
+          enum: [cash, online]
+        payment_status:
+          type: string
+          enum: [completed, pending, failed]
+        payment_date:
+          type: string
+          format: date-time
+        maintenance_id:
+          type: string
+        unit_maintenance_id:
+          type: string
+
+    SinglePaymentResponse:
+      type: object
+      properties:
+        payment_id:
+          type: string
+        building_id:
+          type: string
+        user_id:
+          type: string
+        amount:
+          type: number
+        payment_method:
+          type: string
+        payment_status:
+          type: string
+        payment_date:
+          type: string
+        maintenance_id:
+          type: string
+        unit_maintenance_id:
+          type: string
+
+    MaintenancePaymentsResponse:
+      type: object
+      properties:
+        payments:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentResponse'
+        summary:
+          type: object
+          properties:
+            total_payments:
+              type: integer
+              example: 5
+            total_amount:
+              type: number
+              example: 7500.00
+            cash_payments:
+              type: integer
+              example: 3
+            online_payments:
+              type: integer
+              example: 2
+        maintenance_id:
+          type: string
+        unit_maintenance_id:
+          type: string
