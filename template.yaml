@@ -31,18 +31,91 @@ Parameters:
 
 Resources:
 
-
-  ApartmentsTable:
+  UserBuildingRolesTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Sub "ApartmentsTable-${Environment}"
+      TableName: !Sub "UserBuildingRoles-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+
+      AttributeDefinitions:
+        - AttributeName: user_building_composite
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: building_id
+          AttributeType: S
+        - AttributeName: role
+          AttributeType: S
+
+      KeySchema:
+        - AttributeName: user_building_composite
+          KeyType: HASH
+
+      GlobalSecondaryIndexes:
+        - IndexName: UserIdIndex
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+        - IndexName: BuildingIdIndex
+          KeySchema:
+            - AttributeName: building_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+        - IndexName: UserIdRoleIndex
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+            - AttributeName: role
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+        - IndexName: BuildingIdRoleIndex
+          KeySchema:
+            - AttributeName: building_id
+              KeyType: HASH
+            - AttributeName: role
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  BuildingMembersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "BuildingMembers-${Environment}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
-        - AttributeName: apartment_id
+        - AttributeName: building_id
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: role
           AttributeType: S
       KeySchema:
-        - AttributeName: apartment_id
+        - AttributeName: building_id
           KeyType: HASH
+        - AttributeName: user_id
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: UserIdIndex
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: BuildingRoleIndex
+          KeySchema:
+            - AttributeName: building_id
+              KeyType: HASH
+            - AttributeName: role
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
 
   BuildingsTable:
     Type: AWS::DynamoDB::Table
@@ -54,6 +127,8 @@ Resources:
           AttributeType: S
         - AttributeName: user_id
           AttributeType: S
+        - AttributeName: building_code
+          AttributeType: S
       KeySchema:
         - AttributeName: building_id
           KeyType: HASH
@@ -64,6 +139,12 @@ Resources:
               KeyType: HASH
           Projection:
              ProjectionType: ALL
+        - IndexName: BuildingCodeIndex
+          KeySchema: 
+             - AttributeName: building_code
+               KeyType: HASH 
+          Projection:
+            ProjectionType: ALL         
 
   LoginUsersTable:
     Type: AWS::DynamoDB::Table
@@ -75,18 +156,6 @@ Resources:
           AttributeType: S
       KeySchema:
         - AttributeName: mobile
-          KeyType: HASH
-
-  SuperAdminsTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub "SuperAdmins-${Environment}"
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: admin_id
-          AttributeType: S
-      KeySchema:
-        - AttributeName: admin_id
           KeyType: HASH
 
   UserUnitsTable:
@@ -218,6 +287,78 @@ Resources:
           Projection:
             ProjectionType: ALL
 
+  MembersTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "MembersTable-${Environment}"
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: building_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      GlobalSecondaryIndexes:
+        - IndexName: building-index
+          KeySchema:
+            - AttributeName: building_id
+              KeyType: HASH
+            - AttributeName: user_id
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL        
+
+  ConnectionRequestsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "ConnectionRequests-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: request_id
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: building_id
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: building_code
+          AttributeType: S
+      KeySchema:
+        - AttributeName: request_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: UserIdStatusIndex
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+            - AttributeName: status
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: BuildingIdStatusIndex
+          KeySchema:
+            - AttributeName: building_id
+              KeyType: HASH
+            - AttributeName: status
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: BuildingCodeStatusIndex
+          KeySchema:
+            - AttributeName: building_code
+              KeyType: HASH
+            - AttributeName: status
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
   ServerlessApi:
     Type: AWS::Serverless::Api
     Properties:
@@ -246,6 +387,7 @@ Resources:
         Variables:
           TABLE_USERS: !Ref UsersTable
           TABLE_LOGIN: !Ref LoginUsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
           ENVIRONMENT: !Ref Environment
           COGNITO_CLIENT_ID: !Ref CognitoClientId
           USER_POOL_ID: !Ref UserPoolId
@@ -282,6 +424,7 @@ Resources:
         Variables:
           TABLE_USERS: !Ref UsersTable
           TABLE_LOGIN: !Ref LoginUsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
           ENVIRONMENT: !Ref Environment
           COGNITO_CLIENT_ID: !Ref CognitoClientId
           USER_POOL_ID: !Ref UserPoolId
@@ -316,11 +459,14 @@ Resources:
         Variables:
           TABLE_BUILDINGS: !Ref BuildingsTable
           USERS_TABLE: !Ref UsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref BuildingsTable
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserBuildingRolesTable      
       Events:
         AddBuildingAPI:
           Type: Api
@@ -356,9 +502,15 @@ Resources:
       Environment:
         Variables:
           TABLE_BUILDINGS: !Ref BuildingsTable
+          USERS_TABLE: !Ref UsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable    
       Events:
         UpdateBuildingAPI:
           Type: Api
@@ -375,9 +527,12 @@ Resources:
       Environment:
         Variables:
           TABLE_BUILDINGS: !Ref BuildingsTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable 
       Events:
         DeleteBuildingAPI:
           Type: Api
@@ -385,6 +540,7 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /delete_building
             Method: DELETE
+
   AssignUnitFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -393,9 +549,18 @@ Resources:
       Environment:
         Variables:
           TABLE_USERUNITS: !Ref UserUnitsTable
+          USERS_TABLE: !Ref UsersTable  
+          TABLE_BUILDINGS: !Ref BuildingsTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UserUnitsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable     
+        - DynamoDBReadPolicy:
+            TableName: !Ref BuildingsTable 
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable             
       Events:
         AssignUnitAPI:
           Type: Api
@@ -412,9 +577,15 @@ Resources:
       Environment:
         Variables:
           TABLE_USERUNITS: !Ref UserUnitsTable
+          TABLE_BUILDINGS: !Ref BuildingsTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref UserUnitsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable    
       Events:
         GetMyUnitsAPI:
           Type: Api
@@ -422,6 +593,62 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /get_my_units
             Method: GET
+
+  GetUserUnitsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "get-user-units-${Environment}"
+      Handler: unit.user_units_get.lambda_handler
+      Environment:
+        Variables:
+          TABLE_USERUNITS: !Ref UserUnitsTable
+          USERS_TABLE: !Ref UsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserUnitsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable     
+      Events:
+        GetUserUnitsAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /user_units_get
+            Method: GET
+            
+  CheckUnitAvailabilityFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "check-unit-availability-${Environment}"
+      Handler: unit.check_unit_availability.lambda_handler
+      Environment:
+        Variables:
+          TABLE_USERUNITS: !Ref UserUnitsTable
+          MEMBERS_TABLE: !Ref MembersTable
+          TABLE_BUILDINGS: !Ref BuildingsTable
+          USERS_TABLE: !Ref UsersTable 
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserUnitsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref MembersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable 
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable   
+      Events:
+        CheckUnitAvailabilityAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /check_unit_availability
+            Method: GET          
 
   UnitMaintenanceBillFunction:
     Type: AWS::Serverless::Function
@@ -431,15 +658,18 @@ Resources:
       Environment:
         Variables:
           TABLE_UNIT_MAINTENANCE: !Ref UnitMaintenanceTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable 
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UnitMaintenanceTable
+        - DynamoDBReadPolicy:  # ADD THIS
+            TableName: !Ref UserBuildingRolesTable        
         - Statement:
           - Effect: Allow
             Action:
               - cognito-idp:AdminGetUser
               - cognito-idp:ListUsers
-            Resource: !Sub arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}
+            Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"
       Events:
         UnitMaintenanceBillGET:
           Type: Api
@@ -476,6 +706,8 @@ Resources:
           TABLE_MAINTENANCE: !Ref MaintenanceTable
           TABLE_PAYMENT: !Ref PaymentTable
           TABLE_BUILDINGS: !Ref BuildingsTable
+          TABLE_USERS: !Ref UsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref MaintenanceTable
@@ -483,13 +715,11 @@ Resources:
             TableName: !Ref PaymentTable
         - DynamoDBCrudPolicy:
             TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable  
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable      
       Events:
-        MaintenanceGET:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ServerlessApi
-            Path: /maintenance
-            Method: GET
         MaintenancePOST:
           Type: Api
           Properties:
@@ -506,24 +736,34 @@ Resources:
         Variables:
           TABLE_MAINTENANCE: !Ref MaintenanceTable
           TABLE_PAYMENT: !Ref PaymentTable
+          USERS_TABLE: !Ref UsersTable
+          MEMBERS_TABLE: !Ref MembersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref MaintenanceTable
         - DynamoDBCrudPolicy:
             TableName: !Ref PaymentTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref MembersTable 
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable       
       Events:
-        PaymentCashPOST:
+        PaymentProcessPOST:
           Type: Api
           Properties:
             RestApiId: !Ref ServerlessApi
-            Path: /payment/cash
+            Path: /payment/process
             Method: POST
-        PaymentOnlinePOST:
+
+        PaymentGET:
           Type: Api
           Properties:
             RestApiId: !Ref ServerlessApi
-            Path: /payment/online
-            Method: POST
+            Path: /payment
+            Method: GET
 
   GetUserBuildingFunction:
     Type: AWS::Serverless::Function
@@ -543,6 +783,7 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /get_user_building
             Method: GET
+            
   GetUserBuildingsFunction:
    Type: AWS::Serverless::Function
    Properties:
@@ -561,8 +802,6 @@ Resources:
           RestApiId: !Ref ServerlessApi
           Path: /get_user_buildings
           Method: GET
-          Auth:
-            Authorizer: CognitoAuthorizer
 
   GetMaintenanceFunction:
     Type: AWS::Serverless::Function
@@ -572,9 +811,12 @@ Resources:
       Environment:
         Variables:
           TABLE_MAINTENANCE: !Ref MaintenanceTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref MaintenanceTable
+        - DynamoDBReadPolicy:                                     
+            TableName: !Ref UserBuildingRolesTable    
       Events:
         GetMaintenanceAPI:
           Type: Api
@@ -582,6 +824,7 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /get_maintenance
             Method: GET
+            
   GetBuildingMaintenanceFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -590,9 +833,12 @@ Resources:
       Environment:
         Variables:
           TABLE_MAINTENANCE: !Ref MaintenanceTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref MaintenanceTable
+        - DynamoDBReadPolicy:                                     
+            TableName: !Ref UserBuildingRolesTable    
       Events:
         GetBuildingMaintenanceAPI:
           Type: Api
@@ -600,6 +846,8 @@ Resources:
             RestApiId: !Ref ServerlessApi
             Path: /get_building_maintenance
             Method: GET
+            
+
 
   DeleteMaintenanceFunction:
    Type: AWS::Serverless::Function
@@ -610,11 +858,14 @@ Resources:
       Variables:
         TABLE_MAINTENANCE: !Ref MaintenanceTable
         TABLE_PAYMENT: !Ref PaymentTable
+        TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
     Policies:
       - DynamoDBCrudPolicy:
           TableName: !Ref MaintenanceTable
       - DynamoDBReadPolicy:
           TableName: !Ref PaymentTable
+      - DynamoDBReadPolicy:                                     
+          TableName: !Ref UserBuildingRolesTable     
     Events:
       DeleteMaintenanceAPI:
         Type: Api
@@ -623,6 +874,231 @@ Resources:
           Path: /delete_maintenance
           Method: DELETE
 
+  CreateMemberFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "create-member-${Environment}"
+      Handler: members.create_member.lambda_handler
+      Environment:
+        Variables:
+          MEMBERS_TABLE: !Ref MembersTable
+          USERS_TABLE: !Ref UsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MembersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:  
+            TableName: !Ref UserBuildingRolesTable      
+      Events:
+        CreateMemberAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /members
+            Method: POST
+
+  GetMemberFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "get-member-${Environment}"
+      Handler: members.get_member.lambda_handler
+      Environment:
+        Variables:
+          MEMBERS_TABLE: !Ref MembersTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref MembersTable
+      Events:
+        GetAllMembersAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /members
+            Method: GET
+            
+        GetMemberByIdAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /members/{user_id}
+            Method: GET
+
+  UpdateMemberFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "update-member-${Environment}"
+      Handler: members.update_member.lambda_handler
+      Environment:
+        Variables:
+          MEMBERS_TABLE: !Ref MembersTable
+          USERS_TABLE: !Ref UsersTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MembersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        UpdateMemberAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /members/{user_id}
+            Method: PATCH
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  DeleteMemberFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "delete-member-${Environment}"
+      Handler: members.delete_member.lambda_handler
+      Environment:
+        Variables:
+          MEMBERS_TABLE: !Ref MembersTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MembersTable
+      Events:
+        DeleteMemberAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /members/{user_id}
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer      
+
+  SubmitConnectionRequestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "submit-connection-request-${Environment}"
+      Handler: connections.submit_connection_request.lambda_handler
+      Environment:
+        Variables:
+          TABLE_CONNECTION_REQUESTS: !Ref ConnectionRequestsTable
+          TABLE_BUILDINGS: !Ref BuildingsTable
+          TABLE_USERUNITS: !Ref UserUnitsTable
+          MEMBERS_TABLE: !Ref MembersTable
+          TABLE_USERS: !Ref UsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
+          CHECK_AVAILABILITY_FUNCTION: !Sub "check-unit-availability-${Environment}"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConnectionRequestsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserUnitsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref MembersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBReadPolicy: 
+            TableName: !Ref UserBuildingRolesTable      
+        - LambdaInvokePolicy:
+            FunctionName: !Ref CheckUnitAvailabilityFunction
+      Events:
+        SubmitConnectionRequestAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /connection_requests
+            Method: POST
+
+  GetPendingConnectionRequestsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "get-pending-connection-requests-${Environment}"
+      Handler: connections.get_pending_connection_requests.lambda_handler
+      Environment:
+        Variables:
+          TABLE_CONNECTION_REQUESTS: !Ref ConnectionRequestsTable
+          TABLE_BUILDINGS: !Ref BuildingsTable
+          TABLE_USERS: !Ref UsersTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ConnectionRequestsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        GetPendingConnectionRequestsAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /admin/connection_requests
+            Method: GET
+            
+  ProcessConnectionRequestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "process-connection-request-${Environment}"
+      Handler: connections.process_connection_request.lambda_handler
+      Environment:
+        Variables:
+          TABLE_CONNECTION_REQUESTS: !Ref ConnectionRequestsTable
+          TABLE_BUILDINGS: !Ref BuildingsTable
+          TABLE_USERUNITS: !Ref UserUnitsTable
+          MEMBERS_TABLE: !Ref MembersTable
+          TABLE_USERS: !Ref UsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable 
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConnectionRequestsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserUnitsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MembersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy: 
+            TableName: !Ref UserBuildingRolesTable    
+      Events:
+        ProcessConnectionRequestAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /connection_requests/{request_id}
+            Method: PATCH     
+
+  GetUserConnectedBuildingsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "get-user-connected-buildings-${Environment}"
+      Handler: connections.get_user_connected_buildings.lambda_handler
+      Environment:
+        Variables:
+          TABLE_CONNECTION_REQUESTS: !Ref ConnectionRequestsTable
+          TABLE_BUILDINGS: !Ref BuildingsTable
+          TABLE_USERUNITS: !Ref UserUnitsTable
+          MEMBERS_TABLE: !Ref MembersTable
+          TABLE_USERS: !Ref UsersTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable 
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ConnectionRequestsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserUnitsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref MembersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserBuildingRolesTable     
+      Events:
+        GetUserConnectedBuildingsAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApi
+            Path: /user/connected_buildings
+            Method: GET                   
 
 Outputs:
   ApiUrl:
@@ -655,3 +1131,12 @@ Outputs:
   GetUserBuildingsLambda:
     Description: "Get User Buildings Lambda Function"
     Value: !Ref GetUserBuildingsFunction
+  MembersTableName:
+    Description: "Members Table Name"
+    Value: !Ref MembersTable
+  CreateMemberLambda:
+    Description: "Create Member Lambda Function"
+    Value: !Ref CreateMemberFunction
+  GetMemberLambda:
+    Description: "Get Member Lambda Function"
+    Value: !Ref GetMemberFunction  

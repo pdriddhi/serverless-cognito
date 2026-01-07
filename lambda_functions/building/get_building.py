@@ -14,33 +14,70 @@ def lambda_handler(event, context):
         print(f"Query params: {query_params}")
 
         building_id = query_params.get('building_id')
+        building_code = query_params.get('building_code')  
 
-        if not building_id:
+        if not building_id and not building_code:
             return {
                 'statusCode': 400,
                 'headers': {
                     'Content-Type': 'application/json',
                     'Access-Control-Allow-Origin': '*'
                 },
-                'body': json.dumps({'message': 'building_id is required'})
+                'body': json.dumps({
+                    'message': 'building_id or building_code is required',
+                    'success': False 
+                })
             }
 
         dynamodb = boto3.resource('dynamodb', region_name='ap-south-1')
         table = dynamodb.Table(TABLE_BUILDINGS)
 
-        response = table.get_item(Key={'building_id': building_id})
+        item = None
+        
+        if building_id:
+            response = table.get_item(Key={'building_id': building_id})
+            if 'Item' in response:
+                item = response['Item']
+                print(f"Found building by ID: {building_id}")
+        
+        if not item and building_code:
+            print(f"Searching by building_code: {building_code}")
+            try:
+                response = table.query(
+                    IndexName='BuildingCodeIndex',
+                    KeyConditionExpression='building_code = :code',
+                    ExpressionAttributeValues={':code': building_code}
+                )
+                items = response.get('Items', [])
+                if items:
+                    item = items[0]
+                    print(f"Found building by code via GSI: {building_code}")
+            except Exception as gsi_error:
+                print(f"GSI query failed: {str(gsi_error)}")
+                print("Falling back to scan operation...")
+                
+                response = table.scan(
+                    FilterExpression='building_code = :code',
+                    ExpressionAttributeValues={':code': building_code}
+                )
+                items = response.get('Items', [])
+                if items:
+                    item = items[0]
+                    print(f"Found building by code via scan: {building_code}")
 
-        if 'Item' not in response:
+        if not item:
             return {
                 'statusCode': 404,
                 'headers': {
                     'Content-Type': 'application/json',
                     'Access-Control-Allow-Origin': '*'
                 },
-                'body': json.dumps({'message': 'Building not found'})
+                'body': json.dumps({
+                    'message': 'Building not found',
+                    'success': False  
+                })
             }
 
-        item = response['Item']
         print(f"Raw item from DynamoDB: {json.dumps(item, default=str)}")
 
         wing_details = {}
@@ -64,6 +101,7 @@ def lambda_handler(event, context):
         building_data = {
             'building_id': item.get('building_id'),
             'building_name': item.get('building_name'),
+            'building_code': item.get('building_code', ''),  
             'user_id': item.get('user_id'),
             'status': item.get('status', 'active'),
             'created_at': item.get('created_at'),
@@ -90,6 +128,7 @@ def lambda_handler(event, context):
         building_data = convert_decimals(building_data)
 
         print(f"Building fetched successfully: {building_data.get('building_name')}")
+        print(f"Building code: {building_data.get('building_code')}")
         print(f"Total units calculated: {total_units_of_building}")
 
         return {
@@ -100,6 +139,7 @@ def lambda_handler(event, context):
             },
             'body': json.dumps({
                 'message': 'Building details retrieved successfully',
+                'success': True, 
                 'building': building_data
             }, default=str)
         }
@@ -114,5 +154,8 @@ def lambda_handler(event, context):
                 'Content-Type': 'application/json',
                 'Access-Control-Allow-Origin': '*'
             },
-            'body': json.dumps({'message': 'Failed to get building details'})
+            'body': json.dumps({
+                'message': 'Failed to get building details',
+                'success': False  
+            })
         }

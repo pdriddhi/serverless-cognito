@@ -1,8 +1,35 @@
 import json
 import boto3
+import os
 from decimal import Decimal
 
 dynamodb = boto3.resource('dynamodb')
+
+TABLE_USERUNITS = os.environ.get('TABLE_USERUNITS', 'UserUnits-dev')
+USERS_TABLE = os.environ.get('USERS_TABLE', 'Users-dev')
+USER_BUILDING_ROLES_TABLE = os.environ.get('TABLE_USER_BUILDING_ROLES', 'UserBuildingRoles-dev')
+
+def check_user_is_admin(user_id, building_id):
+    """Check if user is admin for the given building"""
+    try:
+        if not USER_BUILDING_ROLES_TABLE:
+            print("WARNING: USER_BUILDING_ROLES_TABLE not configured, skipping admin check")
+            return True
+            
+        table = dynamodb.Table(USER_BUILDING_ROLES_TABLE)
+        composite_key = f"{user_id}#{building_id}"
+        
+        response = table.get_item(Key={'user_building_composite': composite_key})
+        
+        if 'Item' in response:
+            user_role = response['Item'].get('role')
+            return user_role == 'admin'
+        
+        return False
+        
+    except Exception as e:
+        print(f"Error checking user role: {str(e)}")
+        return False
 
 def convert_decimal(obj):
     if isinstance(obj, list):
@@ -15,44 +42,77 @@ def convert_decimal(obj):
 
 def lambda_handler(event, context):
     try:
-        print("User Units Get function started")
-
-        user_units_table = dynamodb.Table('UserUnits-prod')
-        users_table = dynamodb.Table('Users-prod')   # ← New Users table
-
-        # Step 1: Fetch all units
-        response = user_units_table.scan()
-        units = response.get('Items', [])
-
+        print("=== USER UNITS GET FUNCTION STARTED ===")
+        print(f"Using tables: {TABLE_USERUNITS}, {USERS_TABLE}")
+        
+        query_params = event.get('queryStringParameters', {}) or {}
+        user_id = query_params.get('user_id')  # CHANGED: admin_user_id -> user_id
+        building_id = query_params.get('building_id')
+        
+        if not user_id or not building_id:
+            return {
+                'statusCode': 400,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({
+                    'success': False,
+                    'message': 'user_id and building_id are required'
+                })
+            }
+        
+        # ===== Check if user is admin for this building =====
+        if not check_user_is_admin(user_id, building_id):
+            return {
+                'statusCode': 403,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({
+                    'success': False,
+                    'message': 'Only building admin can view all units',
+                    'user_id': user_id,
+                    'building_id': building_id
+                })
+            }
+        
+        user_units_table = dynamodb.Table(TABLE_USERUNITS)
+        users_table = dynamodb.Table(USERS_TABLE)
+        
+        # Fetch units filtered by building_id
+        units = []
+        response = user_units_table.scan(
+            FilterExpression='building_id = :bid',
+            ExpressionAttributeValues={':bid': building_id}
+        )
+        units.extend(response.get('Items', []))
+        
+        # Handle pagination
+        while 'LastEvaluatedKey' in response:
+            response = user_units_table.scan(
+                FilterExpression='building_id = :bid',
+                ExpressionAttributeValues={':bid': building_id},
+                ExclusiveStartKey=response['LastEvaluatedKey']
+            )
+            units.extend(response.get('Items', []))
+        
         final_units = []
-
-        # Step 2: Fetch name, mobile, wings from Users table
+        
         for unit in units:
-            user_id = unit.get("user_id")
-
-            # Default values
+            unit_user_id = unit.get("user_id")
             name = None
             mobile = None
-            wings = None
 
-            if user_id:
-                user_response = users_table.get_item(Key={"user_id": user_id})
-
+            if unit_user_id:
+                user_response = users_table.get_item(Key={"user_id": unit_user_id})
                 user_data = user_response.get("Item", {})
-
                 name = user_data.get("name")
                 mobile = user_data.get("mobile")
-                wings = user_data.get("wings")
 
-            # Step 3: Remove unwanted fields
+            # Optional: Remove sensitive/optional fields
             unit.pop("rent_amount", None)
             unit.pop("area_sqft", None)
             unit.pop("unit_type", None)
 
-            # Step 4: Add new 3 fields
-            unit["name"] = name
-            unit["mobile"] = mobile
-            unit["wings"] = wings
+            # Add user info
+            unit["occupant_name"] = name
+            unit["occupant_mobile"] = mobile
 
             final_units.append(unit)
 
@@ -62,6 +122,10 @@ def lambda_handler(event, context):
             'statusCode': 200,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
             'body': json.dumps({
+                'success': True,
+                'building_id': building_id,
+                'requested_by': user_id,
+                'is_admin': True,  # Since we passed admin check
                 'units': final_units,
                 'count': len(final_units)
             })
@@ -69,8 +133,14 @@ def lambda_handler(event, context):
 
     except Exception as e:
         print(f"Error in user_units_get: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {
             'statusCode': 500,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'message': 'Failed to get user units'})
+            'body': json.dumps({
+                'success': False,
+                'message': 'Failed to get user units',
+                'error': str(e)
+            })
         }
