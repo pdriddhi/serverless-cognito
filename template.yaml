@@ -773,9 +773,12 @@ Resources:
       Environment:
         Variables:
           TABLE_BUILDINGS: !Ref BuildingsTable
+          TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref BuildingsTable
+        - DynamoDBReadPolicy: 
+            TableName: !Ref UserBuildingRolesTable    
       Events:
         GetUserBuildingApi:
           Type: Api
@@ -792,9 +795,12 @@ Resources:
     Environment:
       Variables:
         TABLE_BUILDINGS: !Ref BuildingsTable
+        TABLE_USER_BUILDING_ROLES: !Ref UserBuildingRolesTable
     Policies:
       - DynamoDBReadPolicy:
           TableName: !Ref BuildingsTable
+      - DynamoDBReadPolicy: 
+          TableName: !Ref UserBuildingRolesTable    
     Events:
       GetUserBuildingsAPI:
         Type: Api

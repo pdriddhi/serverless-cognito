@@ -432,6 +432,13 @@ def lambda_handler(event, context):
                     "message": "user_id is required for update"
                 })
             
+            payment_type = body.get("payment_type")
+            if payment_type and payment_type not in ["cash", "bank"]:
+                return response(400, {
+                    "success": False,
+                    "message": "payment_type must be 'cash' or 'bank'"
+                })            
+            
             existing_bill = unit_maintenance_table.get_item(
                 Key={"unit_maintenance_id": unit_id}
             )
@@ -455,7 +462,7 @@ def lambda_handler(event, context):
             update_expr = []
             values = {}
             
-            allowed_fields = ["status", "payment_status", "wings", "floor", "unit_no", "user_id"]
+            allowed_fields = ["status", "payment_status", "wings", "floor", "unit_no", "user_id", "payment_type"]
             for field in allowed_fields:
                 if field in body:
                     update_expr.append(f"{field} = :{field}")
@@ -473,6 +480,10 @@ def lambda_handler(event, context):
                 update_expr.append("total_amount = :total_amount")
                 values[":bill_items"] = bill_items
                 values[":total_amount"] = total_amount
+
+            if body.get("payment_status") == "paid":
+               update_expr.append("payment_date = :payment_date")
+               values[":payment_date"] = datetime.utcnow().isoformat()            
             
             update_expr.append("updated_at = :updated_at")
             values[":updated_at"] = datetime.utcnow().isoformat()
