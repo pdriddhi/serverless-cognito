@@ -207,19 +207,13 @@ def lambda_handler(event, context):
                 })
         
         building_id = params.get("building_id")
-        user_id = params.get("user_id")
         
-        if not building_id or not user_id:
+        if not building_id:
             return response(400, {
                 "success": False,
-                "message": "building_id and user_id are required for listing bills"
+                "message": "building_id is required for listing bills"
             })
         
-        if not check_user_has_any_role(user_id, building_id):
-            return response(403, {
-                "success": False,
-                "message": "You do not have access to view bills for this building"
-            })
         
         try:
             key_expr = Key("building_id").eq(building_id)
@@ -236,15 +230,10 @@ def lambda_handler(event, context):
                 "KeyConditionExpression": key_expr
             }
             
-            is_admin = check_user_is_admin(user_id, building_id)
-            if not is_admin:
-                filter_expressions.append("user_id = :user_id")
-                expression_values[":user_id"] = user_id
-            else:
-                filter_user_id = params.get("filter_user_id")
-                if filter_user_id:
-                    filter_expressions.append("user_id = :filter_user_id")
-                    expression_values[":filter_user_id"] = filter_user_id
+            filter_user_id = params.get("filter_user_id")
+            if filter_user_id:
+                filter_expressions.append("user_id = :filter_user_id")
+                expression_values[":filter_user_id"] = filter_user_id
             
             status = params.get("status")
             if status:
@@ -302,8 +291,6 @@ def lambda_handler(event, context):
                 "success": True,
                 "count": len(items),
                 "building_id": building_id,
-                "requested_by": user_id,
-                "is_admin": is_admin,
                 "data": items
             })
             
